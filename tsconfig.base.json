@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "lib": ["ES2022", "DOM"],
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "jsx": "react-jsx",
+    "baseUrl": ".",
+    "paths": {
+      "@git-observatory/core-domain": ["packages/core-domain/src"],
+      "@git-observatory/core-analysis": ["packages/core-analysis/src"],
+      "@git-observatory/core-lessons": ["packages/core-lessons/src"],
+      "@git-observatory/ui-shared": ["packages/ui-shared/src"],
+      "@git-observatory/desktop-git-adapter": ["packages/desktop-git-adapter/src"]
+    }
+  }
+}
+

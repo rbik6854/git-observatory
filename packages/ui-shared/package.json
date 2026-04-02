@@ -1,0 +1,12 @@
+{
+  "name": "@git-observatory/ui-shared",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "dependencies": {
+    "@git-observatory/core-domain": "0.1.0",
+    "react": "^19.2.0"
+  }
+}
+

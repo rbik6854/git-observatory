@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "target": "ES2022",
+    "jsx": "react-jsx",
+    "types": ["vite/client"]
+  },
+  "references": [
+    { "path": "../../packages/core-domain" },
+    { "path": "../../packages/core-analysis" },
+    { "path": "../../packages/core-lessons" },
+    { "path": "../../packages/ui-shared" }
+  ],
+  "include": ["src/renderer/**/*"]
+}
+

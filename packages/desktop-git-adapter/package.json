@@ -1,0 +1,12 @@
+{
+  "name": "@git-observatory/desktop-git-adapter",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "dependencies": {
+    "@git-observatory/core-analysis": "0.1.0",
+    "@git-observatory/core-domain": "0.1.0"
+  }
+}
+

@@ -1,0 +1,11 @@
+{
+  "name": "@git-observatory/core-lessons",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "dependencies": {
+    "@git-observatory/core-domain": "0.1.0"
+  }
+}
+
