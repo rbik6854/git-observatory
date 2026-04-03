@@ -74,7 +74,7 @@ textarea {
 }
 
 textarea {
-  min-height: 180px;
+  min-height: 100px;
   resize: vertical;
 }
 
@@ -83,13 +83,18 @@ textarea {
 }
 
 .graph-app {
-  min-height: 100vh;
+  height: 100vh;
   padding: 1rem;
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 1rem;
+  overflow: hidden;
 }
 
 .graph-app--landing {
+  display: grid;
+  height: auto;
+  min-height: 100vh;
   place-items: center;
   padding: 2rem;
 }
@@ -170,6 +175,7 @@ textarea {
 
 .graph-topbar,
 .message-banner,
+.go-playback-strip,
 .go-panel,
 .go-node,
 .go-status-item,
@@ -186,6 +192,7 @@ textarea {
 
 .graph-topbar,
 .message-banner,
+.go-playback-strip,
 .go-panel,
 .go-empty,
 .go-terminal-entry {
@@ -202,9 +209,9 @@ textarea {
 }
 
 .graph-topbar {
-  padding: 0.9rem 1rem;
+  padding: 0.75rem 0.9rem;
   display: grid;
-  gap: 0.7rem;
+  gap: 0.55rem;
   background: linear-gradient(180deg, rgba(156, 54, 215, 0.14), rgba(17, 18, 36, 0.96));
 }
 
@@ -241,7 +248,7 @@ textarea {
 
 .graph-topbar__primary h1 {
   margin: 0;
-  font-size: clamp(1.2rem, 2vw, 1.9rem);
+  font-size: clamp(1.1rem, 1.8vw, 1.6rem);
 }
 
 .graph-topbar__kicker,
@@ -270,7 +277,7 @@ textarea {
 .graph-topbar__meta-pill {
   display: grid;
   gap: 0.12rem;
-  padding: 0.45rem 0.7rem;
+  padding: 0.35rem 0.6rem;
   border-radius: 14px;
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.03);
@@ -314,9 +321,12 @@ textarea {
 
 .graph-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.9fr) minmax(360px, 0.9fr);
+  grid-template-columns: minmax(0, 3.2fr) minmax(420px, 0.68fr);
   gap: 1rem;
-  align-items: start;
+  align-items: stretch;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .graph-layout--full {
@@ -338,12 +348,69 @@ textarea {
   gap: 0.85rem;
 }
 
-.graph-layout__status {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+.graph-layout__main,
+.graph-layout__inspector {
+  min-height: 0;
+}
+
+.graph-layout__main {
+  overflow: hidden;
+  grid-template-rows: minmax(580px, 1fr) auto;
+}
+
+.graph-layout__main > .go-panel:first-child {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.graph-layout__main > .go-panel:first-child .go-panel__body {
+  height: 100%;
+}
+
+.graph-layout__main > .go-panel:nth-child(2) .go-panel__body {
+  min-height: 0;
+}
+
+.graph-layout__inspector {
+  overflow: auto;
+  align-content: start;
+  padding-right: 0.15rem;
+  min-width: 0;
+  max-height: 100%;
+}
+
+.graph-inspector-panel,
+.graph-inspector-panel > .go-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+}
+
+.graph-inspector-panel > .go-panel .go-panel__body {
+  overflow: auto;
 }
 
 .graph-terminal {
   min-height: 280px;
+}
+
+.graph-terminal-drawer {
+  min-height: 0;
+  overflow: hidden;
+  transition: max-height 160ms ease, opacity 160ms ease;
+}
+
+.graph-terminal-drawer.is-collapsed {
+  max-height: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.graph-terminal-drawer:not(.is-collapsed) {
+  max-height: 360px;
+  opacity: 1;
 }
 
 .go-panel {
@@ -362,6 +429,61 @@ textarea {
   font-size: 1rem;
 }
 
+.go-title-with-info {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.go-info {
+  position: relative;
+}
+
+.go-info summary {
+  list-style: none;
+  width: 1.2rem;
+  height: 1.2rem;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 0.72rem;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.go-info summary::-webkit-details-marker {
+  display: none;
+}
+
+.go-info__popover {
+  position: absolute;
+  top: calc(100% + 0.45rem);
+  right: 0;
+  width: min(320px, 70vw);
+  z-index: 20;
+  padding: 0.9rem 1rem;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  background: rgba(12, 15, 28, 0.98);
+}
+
+.go-info__popover p {
+  margin: 0.4rem 0 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.go-info__list {
+  margin: 0.6rem 0 0;
+  padding-left: 1rem;
+  display: grid;
+  gap: 0.35rem;
+  color: var(--muted);
+}
+
 .go-panel__header p {
   margin: 0.3rem 0 0;
   line-height: 1.45;
@@ -371,10 +493,18 @@ textarea {
 
 .go-panel__body {
   padding: 1rem;
+  min-height: 0;
 }
 
 .go-panel__actions {
   justify-content: flex-end;
+}
+
+.go-detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
 }
 
 .go-empty {
@@ -416,6 +546,219 @@ textarea {
   position: absolute;
   left: 0;
   top: 0.25rem;
+}
+
+.graph-topbar--compact {
+  gap: 0.5rem;
+}
+
+.graph-topbar__surface-tabs {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.go-surface-tab {
+  padding: 0.55rem 0.85rem;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.go-surface-tab.is-active {
+  border-color: rgba(109, 220, 255, 0.38);
+  background: linear-gradient(180deg, rgba(109, 220, 255, 0.18), rgba(109, 220, 255, 0.06));
+}
+
+.graph-surface-stack,
+.go-card-grid,
+.go-chip-grid,
+.go-summary-chip-grid,
+.go-tree-list,
+.go-remote-list,
+.go-sidebar-stack,
+.go-story-stack,
+.go-group-list,
+.go-group-card__samples,
+.go-snapshot-stack,
+.go-story-list,
+.go-time-machine,
+.go-time-machine__toolbar,
+.go-timeline-list,
+.go-command-groups,
+.go-command-cards {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.go-card-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.go-chip-grid {
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+}
+
+.go-summary-chip-grid {
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+}
+
+.go-chip,
+.go-tree-entry,
+.go-remote-card,
+.go-group-card,
+.go-story-card,
+.go-command-card,
+.go-summary-chip,
+.go-timeline-event,
+.go-time-machine__summary,
+.go-operation-summary {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.035);
+  padding: 0.85rem 0.95rem;
+}
+
+.go-chip,
+.go-tree-entry,
+.go-remote-card,
+.go-command-card,
+.go-summary-chip {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.go-summary-chip {
+  text-align: left;
+}
+
+.go-summary-chip strong {
+  font-size: 1.2rem;
+}
+
+.go-summary-chip span {
+  color: var(--muted);
+}
+
+.go-chip.is-new,
+.go-status-item.is-new {
+  border-color: rgba(109, 220, 255, 0.32);
+}
+
+.go-chip.is-changed,
+.go-status-item.is-changed {
+  border-color: rgba(255, 217, 61, 0.35);
+}
+
+.go-summary-chip.is-active,
+.go-summary-chip:hover,
+.go-chip--button:hover {
+  border-color: rgba(109, 220, 255, 0.34);
+  background: rgba(109, 220, 255, 0.08);
+}
+
+.go-chip--button {
+  text-align: left;
+}
+
+.go-tree-entry,
+.go-group-card__header,
+.go-remote-card__header,
+.go-metric-row,
+.go-command-card__header,
+.go-time-machine__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+.go-tree-entry div,
+.go-group-card__samples,
+.go-command-card__header {
+  display: grid;
+  gap: 0.18rem;
+}
+
+.go-tree-entry span,
+.go-chip span,
+.go-operation-summary p,
+.go-timeline-event p,
+.go-command-card p {
+  color: var(--muted);
+  margin: 0;
+  line-height: 1.45;
+}
+
+.go-metric-row {
+  flex-wrap: wrap;
+}
+
+.go-story-card span,
+.go-group-card span,
+.go-section-note {
+  color: var(--muted);
+}
+
+.go-section-note {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.go-inline-code {
+  display: inline-flex;
+  width: fit-content;
+  padding: 0.35rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04);
+  color: #d7e2ff;
+}
+
+.go-unsupported-reasons {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.go-story-list {
+  margin: 0;
+  padding-left: 1rem;
+}
+
+.go-group-card__samples code {
+  color: #d7e2ff;
+}
+
+.go-sidebar-stack {
+  align-content: start;
+}
+
+.go-operation-summary strong,
+.go-time-machine__summary strong,
+.go-story-card strong,
+.go-command-group header strong {
+  display: block;
+}
+
+.go-timeline-event {
+  text-align: left;
+}
+
+.go-timeline-event.is-selected {
+  border-color: rgba(109, 220, 255, 0.4);
+}
+
+.go-command-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 0.8rem;
+}
+
+.go-command-cards {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 }
 
 .go-legend__item--head::before {
@@ -471,7 +814,8 @@ textarea {
 
 .go-graph-scroll {
   overflow: auto;
-  min-height: 680px;
+  min-height: 0;
+  height: 100%;
 }
 
 .go-graph-stage {
@@ -506,6 +850,10 @@ textarea {
 
 .go-graph-edge--symbolic {
   stroke: rgba(255, 217, 61, 0.84);
+}
+
+.go-graph-edge.is-changed {
+  animation: go-edge-pulse 820ms ease;
 }
 
 .go-graph-edge-label {
@@ -569,6 +917,11 @@ textarea {
 .go-node.is-selected {
   transform: translateY(-2px) scale(1.02);
   border-color: rgba(255, 255, 255, 0.35);
+}
+
+.go-node.is-new,
+.go-node.is-changed {
+  animation: go-node-pulse 780ms ease;
 }
 
 .go-node--head {
@@ -662,6 +1015,11 @@ textarea {
   background: rgba(109, 220, 255, 0.1);
 }
 
+.go-status-item.is-changed,
+.go-status-item.is-new {
+  animation: go-status-pulse 820ms ease;
+}
+
 .go-status-item span,
 .go-status-item code {
   overflow: hidden;
@@ -683,6 +1041,7 @@ textarea {
 .go-inspector-grid {
   display: grid;
   gap: 0.8rem;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .go-inspector-card {
@@ -692,6 +1051,7 @@ textarea {
   border-radius: 18px;
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.03);
+  min-width: 0;
 }
 
 .go-inspector-card > span {
@@ -713,6 +1073,7 @@ textarea {
 .graph-inspector-actions {
   display: grid;
   gap: 0.75rem;
+  min-width: 0;
 }
 
 .go-mapping__section > span {
@@ -742,6 +1103,7 @@ textarea {
   border-radius: 18px;
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.03);
+  min-width: 0;
 }
 
 .go-mapping__command p {
@@ -755,17 +1117,22 @@ textarea {
   justify-content: space-between;
   gap: 0.75rem;
   align-items: center;
+  flex-wrap: wrap;
 }
 
 .go-tabs {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.5rem;
-  flex-wrap: wrap;
 }
 
 .go-tab {
   padding: 0.6rem 0.85rem;
   background: rgba(255, 255, 255, 0.04);
+  min-width: 0;
+  white-space: normal;
+  text-align: center;
+  line-height: 1.25;
 }
 
 .go-tab.is-active {
@@ -813,10 +1180,16 @@ textarea {
 
 .graph-editor__actions {
   justify-content: flex-end;
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  padding-top: 0.45rem;
+  background: linear-gradient(180deg, rgba(20, 24, 42, 0.04), rgba(20, 24, 42, 0.98) 28%);
+  margin-top: -0.2rem;
 }
 
 .go-terminal {
-  min-height: 240px;
+  min-height: 160px;
 }
 
 .go-terminal__history {
@@ -893,9 +1266,28 @@ textarea {
   flex-wrap: wrap;
 }
 
-.go-terminal-toolbar span {
+.go-playback-strip {
+  padding: 0.95rem 1.1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  background: linear-gradient(180deg, rgba(109, 220, 255, 0.1), rgba(17, 18, 36, 0.96));
+}
+
+.go-playback-strip strong,
+.go-playback-strip p {
+  display: block;
+}
+
+.go-playback-strip p {
+  margin: 0.25rem 0 0;
   color: var(--muted);
-  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.go-playback-stage {
+  animation: go-stage-fade 420ms ease;
 }
 
 .go-terminal-shell {
@@ -920,11 +1312,14 @@ textarea {
   background: #0d1020;
   overflow: hidden;
   padding: 0.4rem 0.2rem;
+  width: 100%;
+  max-height: 220px;
 }
 
 .go-terminal-host {
   border-radius: 18px;
   outline: none;
+  width: 100%;
 }
 
 .go-terminal-host:focus-visible .go-terminal-surface {
@@ -978,7 +1373,61 @@ pre {
   .go-panel__actions,
   .go-terminal-actions,
   .graph-editor__actions,
-  .landing-shell__actions {
+  .landing-shell__actions,
+  .go-playback-strip {
     flex-wrap: wrap;
+  }
+}
+
+@keyframes go-node-pulse {
+  0% {
+    transform: scale(0.9);
+    box-shadow: 0 0 0 rgba(109, 220, 255, 0);
+  }
+  50% {
+    transform: scale(1.06);
+    box-shadow: 0 0 0 10px rgba(109, 220, 255, 0.14);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 rgba(109, 220, 255, 0);
+  }
+}
+
+@keyframes go-edge-pulse {
+  0% {
+    stroke-width: 2;
+    opacity: 0.45;
+  }
+  45% {
+    stroke-width: 6;
+    opacity: 1;
+  }
+  100% {
+    stroke-width: 3;
+    opacity: 1;
+  }
+}
+
+@keyframes go-status-pulse {
+  0% {
+    background: rgba(109, 220, 255, 0.04);
+  }
+  50% {
+    background: rgba(109, 220, 255, 0.18);
+  }
+  100% {
+    background: rgba(255, 255, 255, 0.03);
+  }
+}
+
+@keyframes go-stage-fade {
+  0% {
+    opacity: 0.7;
+    transform: translateY(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
   }
 }

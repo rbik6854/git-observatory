@@ -1,6 +1,7 @@
 import path from "node:path";
 import os from "node:os";
 import { promises as fs } from "node:fs";
+import { spawn } from "node:child_process";
 import { app, BrowserWindow, dialog, ipcMain } from "electron";
 import chokidar, { type FSWatcher } from "chokidar";
 import * as nodePty from "node-pty";
@@ -68,6 +69,26 @@ class ElectronSandboxManager implements SandboxManager {
     }
   }
 
+  async removeSandbox(repoPath: string): Promise<void> {
+    const sandbox = this.sandboxes.get(repoPath);
+    if (!sandbox) {
+      return;
+    }
+
+    try {
+      await removeDirectoryBestEffort(sandbox.repoPath);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException | undefined)?.code;
+      if (code === "EBUSY" || code === "EPERM") {
+        console.warn(`Sandbox removal deferred for locked path ${sandbox.repoPath}`);
+        return;
+      }
+      throw error;
+    }
+
+    this.sandboxes.delete(repoPath);
+  }
+
   async cleanupStaleSandboxes(): Promise<void> {
     await fs.mkdir(this.rootPath, { recursive: true });
     const entries = await fs.readdir(this.rootPath, { withFileTypes: true });
@@ -108,23 +129,19 @@ function normalizeWatchedPath(repoPath: string, changedAbsolutePath: string | nu
   return path.relative(repoPath, changedAbsolutePath).replace(/\\/g, "/");
 }
 
-function gitWatchTargets(repoPath: string): string[] {
-  const gitDir = path.join(repoPath, ".git");
-  return [
-    path.join(gitDir, "HEAD"),
-    path.join(gitDir, "index"),
-    path.join(gitDir, "packed-refs"),
-    path.join(gitDir, "FETCH_HEAD"),
-    path.join(gitDir, "ORIG_HEAD"),
-    path.join(gitDir, "MERGE_HEAD"),
-    path.join(gitDir, "REBASE_HEAD"),
-    path.join(gitDir, "CHERRY_PICK_HEAD"),
-    path.join(gitDir, "REVERT_HEAD"),
-    path.join(gitDir, "BISECT_LOG"),
-    path.join(gitDir, "refs"),
-    path.join(gitDir, "rebase-apply"),
-    path.join(gitDir, "rebase-merge")
-  ];
+function isIgnoredGitMetadataPath(relativePath: string | null): boolean {
+  if (!relativePath) {
+    return true;
+  }
+
+  return (
+    relativePath === ".git" ||
+    relativePath.startsWith(".git/objects/") ||
+    relativePath.startsWith(".git/hooks/") ||
+    relativePath.startsWith(".git/info/") ||
+    relativePath === ".git/index.lock" ||
+    relativePath === ".git/COMMIT_EDITMSG"
+  );
 }
 
 async function removeDirectoryBestEffort(targetPath: string): Promise<void> {
@@ -146,6 +163,128 @@ async function removeDirectoryBestEffort(targetPath: string): Promise<void> {
       throw error;
     }
   }
+}
+
+function escapePowerShellLiteral(value: string): string {
+  return value.replace(/'/g, "''");
+}
+
+function trySpawnDetached(command: string, args: string[], cwd: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false;
+    try {
+      const child = spawn(command, args, {
+        cwd,
+        detached: true,
+        stdio: "ignore",
+        windowsHide: true
+      });
+      child.once("error", () => {
+        if (!settled) {
+          settled = true;
+          resolve(false);
+        }
+      });
+      child.once("spawn", () => {
+        if (!settled) {
+          settled = true;
+          child.unref();
+          resolve(true);
+        }
+      });
+      setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          child.unref();
+          resolve(true);
+        }
+      }, 60);
+    } catch {
+      resolve(false);
+    }
+  });
+}
+
+function tryStartWindowsTerminal(cwd: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false;
+    try {
+      const child = spawn(
+        "cmd.exe",
+        ["/c", "start", "\"\"", "powershell.exe", "-NoExit", "-Command", `Set-Location -LiteralPath '${escapePowerShellLiteral(cwd)}'`],
+        {
+          cwd,
+          detached: true,
+          stdio: "ignore",
+          windowsHide: false
+        }
+      );
+      child.once("error", () => {
+        if (!settled) {
+          settled = true;
+          resolve(false);
+        }
+      });
+      child.once("spawn", () => {
+        if (!settled) {
+          settled = true;
+          child.unref();
+          resolve(true);
+        }
+      });
+      setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          child.unref();
+          resolve(true);
+        }
+      }, 120);
+    } catch {
+      resolve(false);
+    }
+  });
+}
+
+async function openSystemTerminal(cwd: string): Promise<void> {
+  if (process.platform === "win32") {
+    if (await trySpawnDetached("wt.exe", ["-d", cwd], cwd)) {
+      return;
+    }
+
+    if (await tryStartWindowsTerminal(cwd)) {
+      return;
+    }
+
+    throw new Error("Failed to open a system terminal for this repository.");
+  }
+
+  if (process.platform === "darwin") {
+    if (
+      await trySpawnDetached(
+        "open",
+        ["-a", "Terminal", cwd],
+        cwd
+      )
+    ) {
+      return;
+    }
+    throw new Error("Failed to open Terminal.app for this repository.");
+  }
+
+  const linuxCandidates: Array<[string, string[]]> = [
+    ["x-terminal-emulator", ["--working-directory", cwd]],
+    ["gnome-terminal", ["--working-directory", cwd]],
+    ["konsole", ["--workdir", cwd]],
+    ["xfce4-terminal", ["--working-directory", cwd]]
+  ];
+
+  for (const [command, args] of linuxCandidates) {
+    if (await trySpawnDetached(command, args, cwd)) {
+      return;
+    }
+  }
+
+  throw new Error("Failed to open a system terminal for this repository.");
 }
 
 class TerminalManager {
@@ -268,7 +407,7 @@ function startWatchingRepo(repoPath: string): void {
 
   const emitChanged = (changedAbsolutePath: string | null) => {
     const changedPath = normalizeWatchedPath(repoPath, changedAbsolutePath);
-    if (!changedPath || changedPath === ".git/index.lock" || changedPath === ".git/COMMIT_EDITMSG") {
+    if (!changedPath || isIgnoredGitMetadataPath(changedPath)) {
       return;
     }
 
@@ -298,7 +437,7 @@ function startWatchingRepo(repoPath: string): void {
       }
     });
 
-    const metadataWatcher = chokidar.watch(gitWatchTargets(repoPath), {
+    const metadataWatcher = chokidar.watch(path.join(repoPath, ".git"), {
       ignoreInitial: true,
       awaitWriteFinish: {
         stabilityThreshold: 180,
@@ -380,8 +519,20 @@ ipcMain.handle("observatory:inspect-repo", async (_event, repoPath: string) => {
   return gitAdapter.inspectRepo(repoPath);
 });
 
+ipcMain.handle("observatory:inspect-repo-with-options", async (_event, repoPath: string, options) => {
+  return gitAdapter.inspectRepo(repoPath, options);
+});
+
 ipcMain.handle("observatory:inspect-object", async (_event, repoPath: string, oid: string) => {
   return gitAdapter.inspectObject(repoPath, oid);
+});
+
+ipcMain.handle("observatory:inspect-object-with-options", async (_event, repoPath: string, oid: string, options) => {
+  return gitAdapter.inspectObject(repoPath, oid, options);
+});
+
+ipcMain.handle("observatory:inspect-remote", async (_event, repoPath: string, remoteName: string) => {
+  return gitAdapter.inspectRemote(repoPath, remoteName);
 });
 
 ipcMain.handle("observatory:run-command", async (_event, repoPath: string, command: string) => {
@@ -408,6 +559,10 @@ ipcMain.handle("observatory:read-terminal-buffer", async (_event, sessionId: str
   return terminalManager.readBuffer(sessionId);
 });
 
+ipcMain.handle("observatory:open-system-terminal", async (_event, cwd: string) => {
+  await openSystemTerminal(cwd);
+});
+
 ipcMain.handle("observatory:start-watching-repo", async (_event, repoPath: string) => {
   startWatchingRepo(repoPath);
 });
@@ -418,6 +573,12 @@ ipcMain.handle("observatory:stop-watching-repo", async () => {
 
 ipcMain.handle("observatory:list-lessons", async () => lessonChapters);
 ipcMain.handle("observatory:read-workspace", async (_event, repoPath: string) => workspaceAdapter.readWorkspace(repoPath));
+ipcMain.handle("observatory:read-workspace-with-options", async (_event, repoPath: string, options) =>
+  workspaceAdapter.readWorkspace(repoPath, options)
+);
+ipcMain.handle("observatory:read-workspace-file", async (_event, repoPath: string, filePath: string) =>
+  workspaceAdapter.readFile(repoPath, filePath)
+);
 ipcMain.handle("observatory:create-workspace-file", async (_event, repoPath: string, filePath: string, content: string) =>
   workspaceAdapter.createFile(repoPath, filePath, content)
 );
@@ -427,6 +588,14 @@ ipcMain.handle("observatory:update-workspace-file", async (_event, repoPath: str
 ipcMain.handle("observatory:delete-workspace-file", async (_event, repoPath: string, filePath: string) =>
   workspaceAdapter.deleteFile(repoPath, filePath)
 );
+ipcMain.handle("observatory:remove-sandbox", async (_event, repoPath: string) => {
+  stopWatchingRepo();
+  try {
+    await sandboxManager.removeSandbox(repoPath);
+  } catch (error) {
+    console.error(`Failed to remove sandbox ${repoPath}`, error);
+  }
+});
 
 app.whenReady().then(async () => {
   await sandboxManager.cleanupStaleSandboxes();

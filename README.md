@@ -31,5 +31,34 @@ npm run build
 npm test
 ```
 
-The desktop app currently implements the architectural spine and an initial end-to-end observability flow. The shared packages are structured so a future web shell can reuse the same snapshot, transition, lesson, and visualization contracts.
+## Run Locally
 
+This project is currently run as an Electron desktop app from the workspace root.
+
+1. Install dependencies:
+
+```bash
+npm install
+```
+
+2. Build the shared packages and desktop shell:
+
+```bash
+npm run build
+```
+
+3. Start the Electron app:
+
+```bash
+npm run start -w @git-observatory/desktop-shell
+```
+
+Useful validation commands:
+
+```bash
+npm test
+npm run test:e2e
+npm run agents:check
+```
+
+The desktop app currently implements the architectural spine and an initial end-to-end observability flow. The shared packages are structured so a future web shell can reuse the same snapshot, transition, lesson, and visualization contracts.

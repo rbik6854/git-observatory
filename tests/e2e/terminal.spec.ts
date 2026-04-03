@@ -19,13 +19,18 @@ test("embedded terminal accepts keyboard input and shows shell output", async ()
     await page.getByRole("button", { name: "Create Practice Repo" }).click();
     await expect(page.getByRole("heading", { name: "Git structure explorer" })).toBeVisible();
     await expect(page.locator(".graph-topbar__meta-pill strong").first()).toContainText(/git-observatory-practice/i);
+    await page.locator("button").filter({ hasText: /Show Terminal|Hide Terminal/ }).first().click();
+    await expect(page.locator(".graph-terminal-drawer")).not.toHaveClass(/is-collapsed/);
 
     const terminalHost = page.locator(".go-terminal-host");
     await expect(terminalHost).toBeVisible();
-    await terminalHost.click();
+    await terminalHost.click({ force: true });
+    const terminalInput = page.locator(".xterm-helper-textarea");
+    await expect(terminalInput).toBeAttached();
+    await terminalInput.click({ force: true });
 
-    await page.keyboard.type("pwd");
-    await page.keyboard.press("Enter");
+    await terminalInput.type("pwd");
+    await terminalInput.press("Enter");
 
     const probe = page.getByTestId("terminal-output-probe");
     await expect(probe).toContainText("pwd");

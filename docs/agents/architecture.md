@@ -439,6 +439,25 @@ Always require:
 
 If a bug class or review pattern repeats, encode it as a skill instead of solving it ad hoc every time.
 
+### 6. Treat terminal-sensitive changes as a guarded path
+
+For this repo, terminal regressions have repeated often enough that terminal-adjacent work should not be treated as ordinary renderer polish.
+
+Any task that touches:
+
+- `apps/desktop-shell/src/renderer/App.tsx`
+- `apps/desktop-shell/src/main.ts`
+- `apps/desktop-shell/src/preload.ts`
+
+in a way that can affect terminal mount, focus, PTY session lifecycle, repo transitions, or practice reset should explicitly include:
+
+- role: `implementer`
+- skills:
+  - `terminal-integration`
+  - `playwright-e2e-debugging`
+
+and should run the terminal e2e coverage before handoff.
+
 ## Guardrails and enforcement
 
 The repo enforces this system with:

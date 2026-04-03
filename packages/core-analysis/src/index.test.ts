@@ -5,11 +5,17 @@ import {
   createEmptySnapshot
 } from "@git-observatory/core-domain";
 import {
+  buildHistoryTimeline,
+  createRepoInvalidation,
   createDefaultGraphExpansionState,
   createDefaultGraphVisibilityFilters,
   diffSnapshots,
   explainTransition,
-  projectGraph
+  projectHistoryGraph,
+  projectRemoteView,
+  projectTreeExplorer,
+  projectGraph,
+  projectGraphIncremental
 } from "./index";
 
 function command(subcommand: string): ParsedGitCommand {
@@ -112,7 +118,8 @@ describe("projectGraph", () => {
           oid: "tree123",
           size: 24,
           storage: "loose",
-          entries: [{ mode: "100644", type: "blob", oid: "blob123", path: "README.md" }]
+          entries: [{ mode: "100644", type: "blob", oid: "blob123", path: "README.md" }],
+          summary: { renderedEntries: 1, totalEntries: 1, truncated: false }
         }
       }
     });
@@ -188,13 +195,15 @@ describe("projectGraph", () => {
           oid: "tree123",
           size: 24,
           storage: "loose",
-          entries: [{ mode: "100644", type: "blob", oid: "blob123", path: "README.md" }]
+          entries: [{ mode: "100644", type: "blob", oid: "blob123", path: "README.md" }],
+          summary: { renderedEntries: 1, totalEntries: 1, truncated: false }
         }
       }
     });
 
     const reusedBlob = graph.nodes.find((node) => node.id === "blob:blob123");
-    expect(reusedBlob?.label).toContain("+1");
+    expect(reusedBlob?.label).toBe("README.md");
+    expect(reusedBlob?.metadata.pathCount).toBe(2);
     expect(reusedBlob?.metadata.staged).toBe(true);
   });
 
@@ -222,7 +231,8 @@ describe("projectGraph", () => {
           entries: [
             { mode: "100644", type: "blob", oid: "blob-a", path: "README.md" },
             { mode: "100644", type: "blob", oid: "blob-b", path: "second.md" }
-          ]
+          ],
+          summary: { renderedEntries: 2, totalEntries: 2, truncated: false }
         }
       }
     });
@@ -233,5 +243,151 @@ describe("projectGraph", () => {
     expect(blobA).toBeTruthy();
     expect(blobB).toBeTruthy();
     expect(blobA?.position.x === blobB?.position.x && blobA?.position.y === blobB?.position.y).toBe(false);
+  });
+
+  it("reuses structural graph nodes and edges when only selection changes", () => {
+    const snapshot: RepoStateSnapshot = {
+      ...createEmptySnapshot("C:/repo"),
+      refs: [{ name: "refs/heads/main", oid: "commit123", objectType: "commit", scope: "local" }],
+      head: { detached: false, target: "refs/heads/main", oid: "commit123" },
+      commitGraph: [
+        { oid: "commit123", treeOid: "tree123", parents: [], subject: "Initial commit", decorations: ["HEAD -> main"] }
+      ]
+    };
+
+    const first = projectGraphIncremental({ snapshot });
+    const second = projectGraphIncremental({
+      snapshot,
+      selection: { kind: "node", id: "commit:commit123" },
+      cache: first.cache
+    });
+
+    expect(second.graph.nodes).toBe(first.graph.nodes);
+    expect(second.graph.edges).toBe(first.graph.edges);
+    expect(second.graph.selection).toEqual({ kind: "node", id: "commit:commit123" });
+  });
+
+  it("marks changed refs, head, graph edges, and status items for playback emphasis", () => {
+    const snapshot: RepoStateSnapshot = {
+      ...createEmptySnapshot("C:/repo"),
+      workingTree: [{ path: "README.md", indexStatus: "M", workTreeStatus: "M" }],
+      index: [{ mode: "100644", oid: "blob123", stage: 0, path: "README.md" }],
+      refs: [{ name: "refs/heads/main", oid: "commit123", objectType: "commit", scope: "local" }],
+      head: { detached: false, target: "refs/heads/main", oid: "commit123" },
+      commitGraph: [
+        { oid: "commit123", treeOid: "tree123", parents: [], subject: "Initial commit", decorations: ["HEAD -> main"] }
+      ]
+    };
+
+    const graph = projectGraph({
+      snapshot,
+      delta: {
+        workingTreeChanged: ["README.md"],
+        indexChanged: ["README.md:0"],
+        objectsAdded: ["commit123", "tree123", "blob123"],
+        refsChanged: [{ name: "refs/heads/main", beforeOid: null, afterOid: "commit123" }],
+        headChanged: true,
+        operationsChanged: false,
+        gitDirectoryChanged: [],
+        remoteChanged: [],
+        packfilesChanged: false
+      }
+    });
+
+    expect(graph.nodes.find((node) => node.id === "head")?.emphasis).toBe("changed");
+    expect(graph.nodes.find((node) => node.id === "ref:refs/heads/main")?.emphasis).toBe("changed");
+    expect(graph.nodes.find((node) => node.id === "commit:commit123")?.emphasis).toBe("new");
+    expect(graph.edges.some((edge) => edge.emphasis === "changed")).toBe(true);
+    expect(graph.workingArea[0]?.emphasis).toBe("changed");
+    expect(graph.stagingArea[0]?.emphasis).toBe("changed");
+  });
+});
+
+describe("projectHistoryGraph", () => {
+  it("keeps staged blobs out of the history surface", () => {
+    const snapshot: RepoStateSnapshot = {
+      ...createEmptySnapshot("C:/repo"),
+      index: [{ mode: "100644", oid: "blob123", stage: 0, path: "README.md" }],
+      refs: [{ name: "refs/heads/main", oid: "commit123", objectType: "commit", scope: "local" }],
+      head: { detached: false, target: "refs/heads/main", oid: "commit123" },
+      commitGraph: [
+        { oid: "commit123", treeOid: "tree123", parents: [], subject: "Initial commit", decorations: ["HEAD -> main"] }
+      ]
+    };
+
+    const graph = projectHistoryGraph({ snapshot });
+    expect(graph.nodes.some((node) => node.type === "blob")).toBe(false);
+  });
+});
+
+describe("createRepoInvalidation", () => {
+  it("scopes fetch to remote/history/timeline slices", () => {
+    expect(createRepoInvalidation({ command: "git fetch --all" }).slices).toEqual(["remote", "history", "timeline"]);
+  });
+
+  it("scopes workspace file changes to workspace and changes slices", () => {
+    expect(createRepoInvalidation({ changedPath: "src/App.tsx" }).slices).toEqual(["workspace", "changes"]);
+  });
+});
+
+describe("buildHistoryTimeline", () => {
+  it("builds oldest-to-newest durable history events", () => {
+    const snapshot: RepoStateSnapshot = {
+      ...createEmptySnapshot("C:/repo"),
+      commitGraph: [
+        { oid: "commit2", treeOid: "tree2", parents: ["commit1"], subject: "Second", decorations: ["HEAD -> main"] },
+        { oid: "commit1", treeOid: "tree1", parents: [], subject: "First", decorations: [] }
+      ]
+    };
+
+    const journal = buildHistoryTimeline(snapshot);
+    expect(journal.events[0]?.commitOid).toBe("commit1");
+    expect(journal.events[1]?.commitOid).toBe("commit2");
+  });
+});
+
+describe("projectRemoteView", () => {
+  it("surfaces upstream divergence summary", () => {
+    const snapshot: RepoStateSnapshot = {
+      ...createEmptySnapshot("C:/repo"),
+      remoteState: {
+        remotes: [{ name: "origin", fetchUrl: "https://example.com/repo.git", pushUrl: "https://example.com/repo.git" }],
+        remoteRefs: [{ name: "refs/remotes/origin/main", oid: "abc", objectType: "commit", scope: "remote" }],
+        currentBranchName: "main",
+        currentBranchRef: "refs/heads/main",
+        upstreamRefName: "refs/remotes/origin/main",
+        ahead: 2,
+        behind: 1,
+        divergence: "diverged",
+        lastOperation: null
+      }
+    };
+
+    const remoteView = projectRemoteView(snapshot);
+    expect(remoteView.divergence).toBe("diverged");
+    expect(remoteView.summary.join(" ")).toContain("Ahead 2 / Behind 1");
+  });
+});
+
+describe("projectTreeExplorer", () => {
+  it("builds a committed tree-to-blob graph for the selected tree", () => {
+    const tree = projectTreeExplorer({
+      selectedTreeOid: "tree123",
+      inspection: {
+        type: "tree",
+        oid: "tree123",
+        size: 24,
+        storage: "loose",
+        entries: [
+          { mode: "100644", type: "blob", oid: "blob123", path: "README.md" },
+          { mode: "040000", type: "tree", oid: "tree456", path: "src" }
+        ],
+        summary: { renderedEntries: 2, totalEntries: 2, truncated: false }
+      }
+    });
+
+    expect(tree.graph?.nodes.some((node) => node.id === "tree:tree123")).toBe(true);
+    expect(tree.graph?.nodes.some((node) => node.id === "blob:blob123")).toBe(true);
+    expect(tree.graph?.edges.some((edge) => edge.relationship === "contains")).toBe(true);
   });
 });

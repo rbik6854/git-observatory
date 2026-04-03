@@ -20,7 +20,22 @@ function statusLabel(indexStatus: string, workTreeStatus: string): string {
   return `${left}/${right}`;
 }
 
-export function Panel(props: { title: string; subtitle?: string; children: ReactNode; actions?: ReactNode }) {
+export function InfoBadge(props: { label: string; summary: string; details?: ReactNode }) {
+  return (
+    <details className="go-info">
+      <summary aria-label={`About ${props.label}`} title={`About ${props.label}`}>
+        i
+      </summary>
+      <div className="go-info__popover">
+        <strong>{props.label}</strong>
+        <p>{props.summary}</p>
+        {props.details ? <div className="go-info__details">{props.details}</div> : null}
+      </div>
+    </details>
+  );
+}
+
+export function Panel(props: { title: ReactNode; subtitle?: ReactNode; children: ReactNode; actions?: ReactNode }) {
   return (
     <section className="go-panel">
       <div className="go-panel__header">
@@ -108,6 +123,9 @@ function shouldRenderEdgeLabel(relationship: GraphViewModel["edges"][number]["re
 export function GraphCanvas(props: {
   graph?: GraphViewModel | null;
   onSelectNode: (selection: GraphSelection) => void;
+  title?: ReactNode;
+  subtitle?: ReactNode;
+  actions?: ReactNode;
 }) {
   const graph = props.graph;
 
@@ -119,24 +137,28 @@ export function GraphCanvas(props: {
     );
   }
 
-  const width = Math.max(...graph.nodes.map((node) => node.position.x + nodeSize(node.type) + 120), 1180);
-  const height = Math.max(...graph.nodes.map((node) => node.position.y + nodeSize(node.type) + 120), 680);
+  const width = Math.max(...graph.nodes.map((node) => node.position.x + nodeSize(node.type) + 120), 880);
+  const height = Math.max(...graph.nodes.map((node) => node.position.y + nodeSize(node.type) + 120), 560);
   const nodeMap = new Map(graph.nodes.map((node) => [node.id, node]));
+  const visibleTypes = new Set(graph.nodes.map((node) => node.type));
 
   return (
     <Panel
-      title="Git Structure"
-      subtitle="HEAD, refs, commits, trees, and blobs update after every command or refresh."
+      title={props.title ?? "Git Structure"}
+      subtitle={props.subtitle ?? "HEAD, refs, commits, trees, and blobs update after every command or refresh."}
       actions={
-        <div className="go-legend">
-          <span className="go-legend__item go-legend__item--head">HEAD</span>
-          <span className="go-legend__item go-legend__item--ref">Refs</span>
-          <span className="go-legend__item go-legend__item--commit">Commits</span>
-          <span className="go-legend__item go-legend__item--tree">Trees</span>
-          <span className="go-legend__item go-legend__item--blob">Blobs</span>
-          <span className="go-legend__edge go-legend__edge--parent">parent</span>
-          <span className="go-legend__edge go-legend__edge--contains">contains</span>
-          <span className="go-legend__edge go-legend__edge--points">points to</span>
+        <div className="go-graph-canvas-actions">
+          <div className="go-legend">
+            {visibleTypes.has("head") ? <span className="go-legend__item go-legend__item--head">HEAD</span> : null}
+            {visibleTypes.has("ref") ? <span className="go-legend__item go-legend__item--ref">Refs</span> : null}
+            {visibleTypes.has("commit") ? <span className="go-legend__item go-legend__item--commit">Commits</span> : null}
+            {visibleTypes.has("tree") ? <span className="go-legend__item go-legend__item--tree">Trees</span> : null}
+            {visibleTypes.has("blob") ? <span className="go-legend__item go-legend__item--blob">Blobs</span> : null}
+            <span className="go-legend__edge go-legend__edge--parent">parent</span>
+            <span className="go-legend__edge go-legend__edge--contains">contains</span>
+            <span className="go-legend__edge go-legend__edge--points">points to</span>
+          </div>
+          {props.actions}
         </div>
       }
     >
@@ -160,7 +182,7 @@ export function GraphCanvas(props: {
               return (
                 <g key={edge.id}>
                   <line
-                    className={`go-graph-edge go-graph-edge--${edge.relationship}`}
+                    className={`go-graph-edge go-graph-edge--${edge.relationship} ${edge.emphasis && edge.emphasis !== "default" ? `is-${edge.emphasis}` : ""}`}
                     x1={x1}
                     x2={x2}
                     y1={y1}
@@ -187,7 +209,7 @@ export function GraphCanvas(props: {
 
             return (
               <button
-                className={`go-node go-node--${node.type} ${selected ? "is-selected" : ""}`}
+                className={`go-node go-node--${node.type} ${selected ? "is-selected" : ""} ${node.emphasis && node.emphasis !== "default" ? `is-${node.emphasis}` : ""}`}
                 key={node.id}
                 onClick={() => props.onSelectNode(selection)}
                 style={{
@@ -204,8 +226,8 @@ export function GraphCanvas(props: {
                     {Boolean(node.metadata.staged) ? (
                       <span className="go-node__badge go-node__badge--staged">staged</span>
                     ) : null}
-                    {typeof node.metadata.referenceCount === "number" && node.metadata.referenceCount > 1 ? (
-                      <span className="go-node__badge go-node__badge--reused">reused</span>
+                    {typeof node.metadata.pathCount === "number" && node.metadata.pathCount > 1 ? (
+                      <span className="go-node__badge go-node__badge--reused">{node.metadata.pathCount} paths</span>
                     ) : null}
                   </span>
                 ) : null}
@@ -227,9 +249,10 @@ export function StatusPanel(props: {
   items: GraphViewModel["workingArea"] | GraphViewModel["stagingArea"];
   selection: GraphSelection | null;
   onSelect: (selection: GraphSelection) => void;
+  actions?: ReactNode;
 }) {
   return (
-    <Panel title={props.title} subtitle={props.subtitle}>
+    <Panel actions={props.actions} title={props.title} subtitle={props.subtitle}>
       {props.items.length === 0 ? (
         <EmptyState message={props.kind === "working" ? "No working tree changes." : "No staged paths in the index."} />
       ) : (
@@ -239,7 +262,7 @@ export function StatusPanel(props: {
                 const selection: GraphSelection = { kind: "working-tree", path: item.path };
                 return (
                   <button
-                    className={`go-status-item ${selectionMatches(props.selection, selection) ? "is-selected" : ""}`}
+                    className={`go-status-item ${selectionMatches(props.selection, selection) ? "is-selected" : ""} ${item.emphasis && item.emphasis !== "default" ? `is-${item.emphasis}` : ""}`}
                     key={item.id}
                     onClick={() => props.onSelect(selection)}
                     type="button"
@@ -253,7 +276,7 @@ export function StatusPanel(props: {
                 const selection: GraphSelection = { kind: "staging", path: item.path, stage: item.stage };
                 return (
                   <button
-                    className={`go-status-item ${selectionMatches(props.selection, selection) ? "is-selected" : ""}`}
+                    className={`go-status-item ${selectionMatches(props.selection, selection) ? "is-selected" : ""} ${item.emphasis && item.emphasis !== "default" ? `is-${item.emphasis}` : ""}`}
                     key={item.id}
                     onClick={() => props.onSelect(selection)}
                     type="button"

@@ -12,10 +12,16 @@ import {
   RecoveryCheckpoint,
   RefScope,
   RefSummary,
+  RemoteAdvertisedRef,
+  RemoteDivergenceStatus,
+  RemoteInspectResult,
+  RepoReadOptions,
   RepoStateSnapshot,
   SandboxCreationResult,
   SandboxKind,
   StateTransition,
+  TreeReadOptions,
+  WorkspaceReadOptions,
   WorkspaceAdapter,
   createEmptySnapshot,
   createEmptyWorkspace,
@@ -28,6 +34,35 @@ interface ExecResult {
   stdout: string;
   stderr: string;
   exitCode: number;
+}
+
+const DEFAULT_COMMIT_GRAPH_LIMIT = 24;
+const DEFAULT_WORKING_TREE_LIMIT = 60;
+const DEFAULT_INDEX_LIMIT = 60;
+const DEFAULT_WORKSPACE_FILE_LIMIT = 60;
+const DEFAULT_TREE_ENTRY_LIMIT = 24;
+
+function shortRefName(name: string): string {
+  return name
+    .replace(/^refs\/heads\//, "")
+    .replace(/^refs\/remotes\//, "")
+    .replace(/^refs\/tags\//, "");
+}
+
+function classifyRemoteDivergence(ahead: number, behind: number, upstreamRefName: string | null): RemoteDivergenceStatus {
+  if (!upstreamRefName) {
+    return "no-upstream";
+  }
+  if (ahead > 0 && behind > 0) {
+    return "diverged";
+  }
+  if (ahead > 0) {
+    return "ahead";
+  }
+  if (behind > 0) {
+    return "behind";
+  }
+  return "in-sync";
 }
 
 function runGit(args: string[], cwd: string): Promise<ExecResult> {
@@ -134,7 +169,10 @@ function toPackSummary(input: string): PackfileSummary {
   };
 }
 
-async function inspectGitRepo(repoPath: string, gitDir: string): Promise<RepoStateSnapshot> {
+async function inspectGitRepo(repoPath: string, gitDir: string, options: RepoReadOptions = {}): Promise<RepoStateSnapshot> {
+  const commitGraphLimit = options.commitGraphLimit ?? DEFAULT_COMMIT_GRAPH_LIMIT;
+  const workingTreeLimit = options.workingTreeLimit ?? DEFAULT_WORKING_TREE_LIMIT;
+  const indexLimit = options.indexLimit ?? DEFAULT_INDEX_LIMIT;
   const [
     statusResult,
     indexResult,
@@ -144,6 +182,8 @@ async function inspectGitRepo(repoPath: string, gitDir: string): Promise<RepoSta
     graphResult,
     countObjectsResult,
     remoteResult,
+    upstreamResult,
+    aheadBehindResult,
     stashResult,
     gitDirectory,
     mergeExists,
@@ -158,9 +198,11 @@ async function inspectGitRepo(repoPath: string, gitDir: string): Promise<RepoSta
     runGit(["for-each-ref", "--format=%(refname)%09%(objectname)%09%(objecttype)"], repoPath),
     runGit(["symbolic-ref", "-q", "HEAD"], repoPath),
     runGit(["rev-parse", "--verify", "HEAD"], repoPath),
-    runGit(["log", "--all", "--date-order", "--format=%H%x09%T%x09%P%x09%s%x09%D", "-n", "60"], repoPath),
+    runGit(["log", "--all", "--date-order", "--format=%H%x09%T%x09%P%x09%s%x09%D", "-n", String(commitGraphLimit + 1)], repoPath),
     runGit(["count-objects", "-v"], repoPath),
     runGit(["remote", "-v"], repoPath),
+    runGit(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], repoPath),
+    runGit(["rev-list", "--left-right", "--count", "HEAD...@{upstream}"], repoPath),
     runGit(["stash", "list"], repoPath),
     listGitDirectory(gitDir),
     exists(path.join(gitDir, "MERGE_HEAD")),
@@ -171,18 +213,24 @@ async function inspectGitRepo(repoPath: string, gitDir: string): Promise<RepoSta
     exists(path.join(gitDir, "rebase-merge"))
   ]);
 
-  const workingTree = statusResult.stdout
+  const workingTreeLines = statusResult.stdout
     .split(/\r?\n/)
-    .filter(Boolean)
+    .filter(Boolean);
+
+  const workingTree = workingTreeLines
+    .slice(0, workingTreeLimit)
     .map((line) => ({
       indexStatus: line.slice(0, 1),
       workTreeStatus: line.slice(1, 2),
       path: line.slice(3).trim()
     }));
 
-  const index = indexResult.stdout
+  const indexLines = indexResult.stdout
     .split(/\r?\n/)
-    .filter(Boolean)
+    .filter(Boolean);
+
+  const index = indexLines
+    .slice(0, indexLimit)
     .map((line) => {
       const [meta, filePath] = line.split("\t");
       const [mode, oid, stage] = meta.split(" ");
@@ -207,9 +255,12 @@ async function inspectGitRepo(repoPath: string, gitDir: string): Promise<RepoSta
       };
     });
 
-  const commitGraph = graphResult.stdout
+  const commitGraphLines = graphResult.stdout
     .split(/\r?\n/)
-    .filter(Boolean)
+    .filter(Boolean);
+
+  const commitGraph = commitGraphLines
+    .slice(0, commitGraphLimit)
     .map((line) => {
       const [oid, treeOid, parents, subject, decorations] = line.split("\t");
       return {
@@ -286,6 +337,48 @@ async function inspectGitRepo(repoPath: string, gitDir: string): Promise<RepoSta
       .values()
   );
 
+  const currentBranchRef = headTargetResult.exitCode === 0 ? headTargetResult.stdout.trim() : null;
+  const currentBranchName = currentBranchRef ? shortRefName(currentBranchRef) : null;
+  const upstreamRefName = upstreamResult.exitCode === 0 ? upstreamResult.stdout.trim() : null;
+  const aheadBehindTokens = aheadBehindResult.exitCode === 0 ? aheadBehindResult.stdout.trim().split(/\s+/) : [];
+  const ahead = Number(aheadBehindTokens[0] ?? "0");
+  const behind = Number(aheadBehindTokens[1] ?? "0");
+  const remoteRefs = refs.filter((ref) => ref.scope === "remote");
+  const remoteState = {
+    remotes,
+    remoteRefs,
+    currentBranchName,
+    currentBranchRef,
+    upstreamRefName,
+    ahead,
+    behind,
+    divergence: classifyRemoteDivergence(ahead, behind, upstreamRefName),
+    lastOperation: null
+  } as RepoStateSnapshot["remoteState"];
+
+  const performance = {
+    isLargeRepo: false,
+    commitGraphTotal: commitGraphLines.length,
+    commitGraphRendered: commitGraph.length,
+    commitGraphTruncated: commitGraphLines.length > commitGraphLimit,
+    workingTreeTotal: workingTreeLines.length,
+    workingTreeRendered: workingTree.length,
+    workingTreeTruncated: workingTreeLines.length > workingTreeLimit,
+    indexTotal: indexLines.length,
+    indexRendered: index.length,
+    indexTruncated: indexLines.length > indexLimit,
+    workspaceFilesTotal: 0,
+    workspaceFilesRendered: 0,
+    workspaceFilesTruncated: false,
+    treeEntriesRenderedLimit: DEFAULT_TREE_ENTRY_LIMIT
+  };
+
+  performance.isLargeRepo =
+    performance.commitGraphTruncated ||
+    performance.workingTreeTruncated ||
+    performance.indexTruncated ||
+    (countObjectsResult.stdout.includes("in-pack:") && (performance.commitGraphRendered > 20 || performance.indexRendered > 100));
+
   return {
     repoPath,
     capturedAt: new Date().toISOString(),
@@ -310,7 +403,9 @@ async function inspectGitRepo(repoPath: string, gitDir: string): Promise<RepoSta
       stashCount: stashResult.stdout.split(/\r?\n/).filter(Boolean).length
     },
     remotes,
+    remoteState,
     packfiles: toPackSummary(countObjectsResult.stdout),
+    performance,
     notes: []
   };
 }
@@ -334,21 +429,18 @@ function deriveWorkspaceStatus(filePath: string, snapshot: RepoStateSnapshot): L
   return "committed";
 }
 
-async function readWorkspaceFiles(repoPath: string, root = repoPath): Promise<LessonWorkspaceFile[]> {
+async function readWorkspaceFiles(
+  repoPath: string,
+  options: WorkspaceReadOptions = {},
+  root = repoPath
+): Promise<{ files: LessonWorkspaceFile[]; total: number; truncated: boolean }> {
+  const fileLimit = options.fileLimit ?? DEFAULT_WORKSPACE_FILE_LIMIT;
   const files: LessonWorkspaceFile[] = [];
-  const maxEntries = 100;
+  let total = 0;
 
   async function walk(currentPath: string): Promise<void> {
-    if (files.length >= maxEntries) {
-      return;
-    }
-
     const entries = await fs.readdir(currentPath, { withFileTypes: true });
     for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
-      if (files.length >= maxEntries) {
-        return;
-      }
-
       if (entry.name === ".git") {
         continue;
       }
@@ -361,28 +453,52 @@ async function readWorkspaceFiles(repoPath: string, root = repoPath): Promise<Le
         continue;
       }
 
-      const content = await fs.readFile(absolutePath, "utf8");
-      files.push({
-        path: relativePath,
-        content,
-        status: "tracked"
-      });
+      total += 1;
+      if (files.length < fileLimit) {
+        const stat = await fs.stat(absolutePath);
+        files.push({
+          path: relativePath,
+          status: "tracked",
+          loaded: false,
+          size: stat.size
+        });
+      }
     }
   }
 
   await walk(root);
-  return files;
+  return {
+    files,
+    total,
+    truncated: total > fileLimit
+  };
+}
+
+async function readWorkspaceFile(repoPath: string, filePath: string): Promise<LessonWorkspaceFile | null> {
+  const absolutePath = path.join(repoPath, filePath);
+  if (!(await exists(absolutePath))) {
+    return null;
+  }
+
+  const [content, stat] = await Promise.all([fs.readFile(absolutePath, "utf8"), fs.stat(absolutePath)]);
+  return {
+    path: filePath,
+    content,
+    status: "tracked",
+    loaded: true,
+    size: stat.size
+  };
 }
 
 export class LocalGitExecutionAdapter implements GitExecutionAdapter {
-  async inspectRepo(repoPath: string): Promise<RepoStateSnapshot> {
+  async inspectRepo(repoPath: string, options: RepoReadOptions = {}): Promise<RepoStateSnapshot> {
     const gitDirResult = await runGit(["rev-parse", "--absolute-git-dir"], repoPath);
 
     if (gitDirResult.exitCode !== 0) {
       return createEmptySnapshot(repoPath, ["Not a Git repository yet. Run git init to observe repository birth."]);
     }
 
-    return inspectGitRepo(repoPath, gitDirResult.stdout.trim());
+    return inspectGitRepo(repoPath, gitDirResult.stdout.trim(), options);
   }
 
   async createCheckpoint(repoPath: string): Promise<RecoveryCheckpoint> {
@@ -417,7 +533,7 @@ export class LocalGitExecutionAdapter implements GitExecutionAdapter {
     };
   }
 
-  async inspectObject(repoPath: string, oid: string): Promise<GitObjectInspection | null> {
+  async inspectObject(repoPath: string, oid: string, options: TreeReadOptions = {}): Promise<GitObjectInspection | null> {
     const [typeResult, sizeResult, contentResult] = await Promise.all([
       runGit(["cat-file", "-t", oid], repoPath),
       runGit(["cat-file", "-s", oid], repoPath),
@@ -445,7 +561,8 @@ export class LocalGitExecutionAdapter implements GitExecutionAdapter {
 
     if (type === "tree") {
       const treeResult = await runGit(["ls-tree", oid], repoPath);
-      const entries = treeResult.stdout
+      const treeLimit = options.entryLimit ?? DEFAULT_TREE_ENTRY_LIMIT;
+      const allEntries = treeResult.stdout
         .split(/\r?\n/)
         .filter(Boolean)
         .map((line) => {
@@ -458,13 +575,19 @@ export class LocalGitExecutionAdapter implements GitExecutionAdapter {
             path: filePath
           };
         });
+      const entries = allEntries.slice(0, treeLimit);
 
       return {
         type,
         oid,
         size,
         storage,
-        entries
+        entries,
+        summary: {
+          renderedEntries: entries.length,
+          totalEntries: allEntries.length,
+          truncated: allEntries.length > treeLimit
+        }
       };
     }
 
@@ -555,6 +678,23 @@ export class LocalGitExecutionAdapter implements GitExecutionAdapter {
     };
   }
 
+  async inspectRemote(repoPath: string, remoteName: string): Promise<RemoteInspectResult> {
+    const result = await runGit(["ls-remote", "--heads", "--tags", remoteName], repoPath);
+    const advertisedRefs: RemoteAdvertisedRef[] = result.stdout
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .map((line) => {
+        const [oid, name] = line.split(/\s+/);
+        return { oid, name };
+      });
+
+    return {
+      remoteName,
+      advertisedRefs,
+      fetchedAt: new Date().toISOString()
+    };
+  }
+
   async executeCommand(repoPath: string, command: string): Promise<StateTransition> {
     const parsedCommand = parseGitCommand(command);
     const risk = classifyRisk(parsedCommand);
@@ -582,20 +722,47 @@ export class LocalGitExecutionAdapter implements GitExecutionAdapter {
 }
 
 export class LocalWorkspaceAdapter implements WorkspaceAdapter {
-  async readWorkspace(repoPath: string): Promise<LessonWorkspace> {
-    const files = (await exists(repoPath)) ? await readWorkspaceFiles(repoPath) : [];
+  async readWorkspace(repoPath: string, options: WorkspaceReadOptions = {}): Promise<LessonWorkspace> {
+    const workspaceListing = (await exists(repoPath))
+      ? await readWorkspaceFiles(repoPath, options)
+      : { files: [], total: 0, truncated: false };
     const snapshot = await new LocalGitExecutionAdapter().inspectRepo(repoPath);
-    const normalizedFiles = files.map((file) => ({
+    const normalizedFiles = workspaceListing.files.map((file) => ({
       ...file,
       status: deriveWorkspaceStatus(file.path, snapshot)
     }));
+
+    const performance = {
+      isLargeRepo: snapshot.performance.isLargeRepo || workspaceListing.truncated,
+      workspaceFilesTotal: workspaceListing.total,
+      workspaceFilesRendered: normalizedFiles.length,
+      workspaceFilesTruncated: workspaceListing.truncated
+    };
+    snapshot.performance.workspaceFilesTotal = performance.workspaceFilesTotal;
+    snapshot.performance.workspaceFilesRendered = performance.workspaceFilesRendered;
+    snapshot.performance.workspaceFilesTruncated = performance.workspaceFilesTruncated;
+    snapshot.performance.isLargeRepo = snapshot.performance.isLargeRepo || performance.workspaceFilesTruncated;
 
     return {
       repoPath,
       files: normalizedFiles,
       selectedPath: normalizedFiles[0]?.path ?? null,
       terminalUnlocked: snapshot.commitGraph.length > 0 || snapshot.index.length > 0,
+      performance,
       modifiedAt: new Date().toISOString()
+    };
+  }
+
+  async readFile(repoPath: string, filePath: string): Promise<LessonWorkspaceFile | null> {
+    const snapshot = await new LocalGitExecutionAdapter().inspectRepo(repoPath);
+    const file = await readWorkspaceFile(repoPath, filePath);
+    if (!file) {
+      return null;
+    }
+
+    return {
+      ...file,
+      status: deriveWorkspaceStatus(filePath, snapshot)
     };
   }
 

@@ -16,9 +16,11 @@ import {
   buildInspectorModel,
   createDefaultGraphExpansionState,
   createDefaultGraphVisibilityFilters,
-  projectGraph
+  GraphProjectionCache,
+  projectGraph,
+  projectGraphIncremental
 } from "@git-observatory/core-analysis";
-import { EmptyState, GraphCanvas, InspectorPanel, Panel, StatusPanel } from "@git-observatory/ui-shared";
+import { EmptyState, GraphCanvas, InfoBadge, InspectorPanel, Panel, StatusPanel } from "@git-observatory/ui-shared";
 
 type Mode = "idle" | "practice" | "analyze";
 
@@ -78,26 +80,34 @@ export default function App() {
   const [infoMessage, setInfoMessage] = useState("");
   const [terminalSession, setTerminalSession] = useState<TerminalSessionDescriptor | null>(null);
   const [attachingTerminal, setAttachingTerminal] = useState(false);
-  const [terminalCollapsed, setTerminalCollapsed] = useState(false);
-  const [terminalHeight, setTerminalHeight] = useState(320);
+  const [terminalCollapsed, setTerminalCollapsed] = useState(true);
+  const [terminalHeight, setTerminalHeight] = useState(96);
   const [isResizingTerminal, setIsResizingTerminal] = useState(false);
   const [lastExternalChange, setLastExternalChange] = useState<string>("");
   const [inspectorCollapsed, setInspectorCollapsed] = useState(true);
-  const [terminalDebugOutput, setTerminalDebugOutput] = useState("");
+  const [detailPanel, setDetailPanel] = useState<"working" | "staging" | null>(null);
+  const [composerOpen, setComposerOpen] = useState(false);
+  const graphCacheRef = useRef<GraphProjectionCache | null>(null);
 
-  const graph = useMemo(
-    () =>
-      snapshot
-        ? projectGraph({
-            snapshot,
-            selection,
-            visibilityFilters: filters,
-            expansionState,
-            treeInspections
-          })
-        : null,
-    [expansionState, filters, selection, snapshot, treeInspections]
-  );
+  const baseGraph = useMemo(() => {
+    if (!snapshot) {
+      graphCacheRef.current = null;
+      return null;
+    }
+
+    const result = projectGraphIncremental({
+      snapshot,
+      visibilityFilters: filters,
+      expansionState,
+      treeInspections,
+      cache: graphCacheRef.current
+    });
+
+    graphCacheRef.current = result.cache;
+    return result.graph;
+  }, [expansionState, filters, snapshot, treeInspections]);
+
+  const graph = useMemo(() => (baseGraph ? { ...baseGraph, selection } : null), [baseGraph, selection]);
 
   const inspector = useMemo(
     () =>
@@ -127,6 +137,10 @@ export default function App() {
   const refreshInFlightRef = useRef(false);
   const refreshQueuedRef = useRef(false);
   const lastRefreshRepoRef = useRef<string>("");
+  const commandRefreshSuppressUntilRef = useRef(0);
+  const terminalDebugProbeRef = useRef<HTMLElement | null>(null);
+  const terminalDebugBufferRef = useRef("");
+  const terminalDebugFlushRef = useRef<number | null>(null);
 
   function scheduleRefresh(delay = 400) {
     if (refreshTimeoutRef.current) {
@@ -139,23 +153,23 @@ export default function App() {
   }
 
   function scheduleCommandRefresh() {
-    scheduleRefresh(250);
-    window.setTimeout(() => {
-      void refreshState(repoPath, true);
-    }, 1100);
+    commandRefreshSuppressUntilRef.current = Date.now() + 1800;
+    scheduleRefresh(350);
   }
 
   function syncTerminalSize() {
     const terminal = terminalRef.current;
     const fitAddon = fitAddonRef.current;
-    const sessionId = terminalSession?.id ?? null;
+    const sessionId = terminalSessionIdRef.current;
 
-    if (!terminal || !fitAddon || !sessionId || terminalCollapsed) {
+    if (!terminal || !fitAddon || terminalCollapsed) {
       return;
     }
 
     fitAddon.fit();
-    void window.gitObservatory.resizeTerminal(sessionId, terminal.cols, terminal.rows);
+    if (sessionId) {
+      void window.gitObservatory.resizeTerminal(sessionId, terminal.cols, terminal.rows);
+    }
   }
 
   function focusTerminalInput() {
@@ -176,6 +190,20 @@ export default function App() {
     void window.gitObservatory.writeTerminal(sessionId, data);
   }
 
+  function pushTerminalDebugOutput(data: string) {
+    terminalDebugBufferRef.current = `${terminalDebugBufferRef.current}${data}`.slice(-12000);
+    if (terminalDebugFlushRef.current !== null) {
+      return;
+    }
+
+    terminalDebugFlushRef.current = window.setTimeout(() => {
+      terminalDebugFlushRef.current = null;
+      if (terminalDebugProbeRef.current) {
+        terminalDebugProbeRef.current.textContent = terminalDebugBufferRef.current;
+      }
+    }, 80);
+  }
+
   useEffect(() => {
     if (!workspace) {
       return;
@@ -191,7 +219,7 @@ export default function App() {
 
     if (file) {
       setEditorPath(file.path);
-      setEditorContent(file.content);
+      setEditorContent(file.content ?? "");
     }
   }, [selection, workspace]);
 
@@ -313,6 +341,7 @@ export default function App() {
   useEffect(() => {
     let cancelled = false;
     let helperTextarea: HTMLTextAreaElement | null = null;
+    let terminalDataDisposable: { dispose(): void } | null = null;
     const handlePaste = (event: Event) => {
       const clipboardEvent = event as ClipboardEvent;
       const text = clipboardEvent.clipboardData?.getData("text/plain") ?? "";
@@ -351,9 +380,7 @@ export default function App() {
       const fitAddon = new FitAddon();
       terminal.loadAddon(fitAddon);
       terminal.open(terminalContainerRef.current);
-      terminal.writeln("Git Internals Observatory terminal ready.");
-      terminal.writeln("Open a repository or create a practice sandbox to attach a shell.");
-      terminal.onData((data) => {
+      terminalDataDisposable = terminal.onData((data) => {
         writeToTerminalSession(data);
         if (data.includes("\r")) {
           scheduleCommandRefresh();
@@ -373,6 +400,20 @@ export default function App() {
         window.requestAnimationFrame(() => {
           fitAddon.fit();
         });
+        const ro = new ResizeObserver(() => {
+          if (terminalContainerRef.current && terminalContainerRef.current.clientWidth > 0 && !terminalCollapsed) {
+            syncTerminalSize();
+          }
+        });
+        ro.observe(terminalContainerRef.current);
+        helperTextarea = helperTextarea as HTMLTextAreaElement | null;
+        const oldDisposable = terminalDataDisposable;
+        terminalDataDisposable = {
+          dispose: () => {
+            ro.disconnect();
+            oldDisposable?.dispose();
+          }
+        };
       }
     })();
 
@@ -381,6 +422,7 @@ export default function App() {
       if (helperTextarea) {
         helperTextarea.removeEventListener("paste", handlePaste);
       }
+      terminalDataDisposable?.dispose();
       terminalRef.current?.dispose();
       terminalRef.current = null;
       fitAddonRef.current = null;
@@ -389,7 +431,7 @@ export default function App() {
 
   useEffect(() => {
     const unsubscribe = window.gitObservatory.onTerminalEvent((event) => {
-      if (!terminalSessionIdRef.current) {
+      if (!terminalSessionIdRef.current || event.sessionId !== terminalSessionIdRef.current) {
         return;
       }
 
@@ -400,20 +442,20 @@ export default function App() {
 
       switch (event.type) {
         case "ready":
-          terminal.writeln("");
-          terminal.writeln(`[attached shell session ${event.sessionId}]`);
           syncTerminalSize();
           break;
         case "output":
           terminal.write(event.data);
-          setTerminalDebugOutput((current) => `${current}${event.data}`.slice(-12000));
+          pushTerminalDebugOutput(event.data);
           break;
         case "exit":
           terminal.writeln(`\r\n[terminal exited with code ${event.exitCode}]`);
+          terminalSessionIdRef.current = null;
+          (window as typeof window & { __terminalSessionId?: string | null }).__terminalSessionId = null;
+          setTerminalSession(null);
           setInfoMessage(`Terminal session exited with code ${event.exitCode}.`);
           break;
         case "cwd-change":
-          setInfoMessage(`Terminal attached to ${event.cwd}`);
           break;
         case "error":
           setError(event.message);
@@ -429,6 +471,10 @@ export default function App() {
   useEffect(() => {
     const unsubscribe = window.gitObservatory.onRepoWatchEvent((event) => {
       if (!repoPath || event.repoPath !== repoPath) {
+        return;
+      }
+
+      if (Date.now() < commandRefreshSuppressUntilRef.current) {
         return;
       }
 
@@ -494,7 +540,7 @@ export default function App() {
       }
 
       const delta = dragStartRef.current.y - event.clientY;
-      setTerminalHeight(Math.max(180, Math.min(620, dragStartRef.current.height + delta)));
+      setTerminalHeight(Math.max(110, Math.min(260, dragStartRef.current.height + delta)));
     }
 
     function handleUp() {
@@ -533,6 +579,9 @@ export default function App() {
 
   useEffect(() => {
     return () => {
+      if (terminalDebugFlushRef.current) {
+        window.clearTimeout(terminalDebugFlushRef.current);
+      }
       const sessionId = terminalSessionIdRef.current;
       if (sessionId) {
         void window.gitObservatory.closeTerminal(sessionId);
@@ -558,12 +607,19 @@ export default function App() {
     }
 
     try {
-      const [nextSnapshot, nextWorkspace] = await Promise.all([
-        window.gitObservatory.inspectRepo(targetRepoPath),
-        window.gitObservatory.readWorkspace(targetRepoPath)
-      ]);
+      const shouldReadWorkspace =
+        !workspace ||
+        composerOpen ||
+        selection?.kind === "working-tree" ||
+        selection?.kind === "staging";
+
+      const nextSnapshotPromise = window.gitObservatory.inspectRepo(targetRepoPath);
+      const nextWorkspacePromise = shouldReadWorkspace ? window.gitObservatory.readWorkspace(targetRepoPath) : Promise.resolve(workspace);
+      const [nextSnapshot, nextWorkspace] = await Promise.all([nextSnapshotPromise, nextWorkspacePromise]);
       setSnapshot(nextSnapshot);
-      setWorkspace(nextWorkspace);
+      if (nextWorkspace) {
+        setWorkspace(nextWorkspace);
+      }
       if (!silent) {
         setError("");
       }
@@ -595,19 +651,24 @@ export default function App() {
       }
 
       terminalRef.current?.clear();
-      terminalRef.current?.writeln(`[Git Observatory] attaching shell at ${targetRepoPath}`);
         const session = await window.gitObservatory.createTerminal(targetRepoPath);
         terminalSessionIdRef.current = session.id;
         (window as typeof window & { __terminalSessionId?: string | null }).__terminalSessionId = session.id;
         setTerminalSession(session);
-        setTerminalHeight(session.height);
-        setTerminalCollapsed(session.collapsed);
-        setTerminalDebugOutput("");
+        setTerminalHeight(Math.min(session.height, 220));
+        setTerminalCollapsed(true);
+        if (terminalDebugProbeRef.current) {
+          terminalDebugProbeRef.current.textContent = "";
+        }
+        terminalDebugBufferRef.current = "";
 
         const bufferedOutput = await window.gitObservatory.readTerminalBuffer(session.id);
         if (bufferedOutput) {
           terminalRef.current?.write(bufferedOutput);
-          setTerminalDebugOutput(bufferedOutput.slice(-12000));
+          terminalDebugBufferRef.current = bufferedOutput.slice(-12000);
+          if (terminalDebugProbeRef.current) {
+            terminalDebugProbeRef.current.textContent = terminalDebugBufferRef.current;
+          }
         }
 
       window.requestAnimationFrame(() => {
@@ -640,7 +701,9 @@ export default function App() {
       setTreeInspections({});
       setExpansionState(createDefaultGraphExpansionState());
       setLastExternalChange("");
-      setInspectorCollapsed(true);
+      setInspectorCollapsed(false);
+      setDetailPanel(null);
+      setComposerOpen(false);
       await attachTerminal(result.repoPath);
       setInfoMessage("Practice sandbox created. Use the terminal below or create files from the inspector.");
     } catch (caught) {
@@ -671,7 +734,9 @@ export default function App() {
       setTreeInspections({});
       setExpansionState(createDefaultGraphExpansionState());
       setLastExternalChange("");
-      setInspectorCollapsed(true);
+      setInspectorCollapsed(false);
+      setDetailPanel(null);
+      setComposerOpen(false);
       await attachTerminal(result.repoPath);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Failed to open repository.");
@@ -696,7 +761,15 @@ export default function App() {
 
       setWorkspace(nextWorkspace);
       await refreshState(repoPath, true);
-      setSelection({ kind: "working-tree", path: editorPath.trim() });
+      if (existing) {
+        setComposerOpen(true);
+        setSelection({ kind: "working-tree", path: editorPath.trim() });
+      } else {
+        setComposerOpen(false);
+        setSelection(null);
+        setEditorPath("README.md");
+        setEditorContent("");
+      }
       setInfoMessage(existing ? `${editorPath.trim()} saved.` : `${editorPath.trim()} created.`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Failed to save the file.");
@@ -717,7 +790,8 @@ export default function App() {
       const nextWorkspace = await window.gitObservatory.deleteWorkspaceFile(repoPath, editorPath.trim());
       setWorkspace(nextWorkspace);
       await refreshState(repoPath, true);
-      setSelection({ kind: "composer" });
+      setComposerOpen(false);
+      setSelection(null);
       setEditorContent("");
       setInfoMessage(`${editorPath.trim()} deleted.`);
     } catch (caught) {
@@ -731,7 +805,16 @@ export default function App() {
     setSelection(selectionValue);
     setInspectorTab("what");
     setInspectorCollapsed(false);
+    setComposerOpen(false);
+    if (selectionValue.kind === "working-tree") {
+      setDetailPanel("working");
+      setComposerOpen(true);
+    } else if (selectionValue.kind === "staging") {
+      setDetailPanel("staging");
+      setComposerOpen(true);
+    }
     if (selectionValue.kind === "composer") {
+      setComposerOpen(true);
       setEditorPath("README.md");
       setEditorContent("");
     }
@@ -748,7 +831,20 @@ export default function App() {
       writeToTerminalSession(`${command}\r`);
       scheduleCommandRefresh();
       focusTerminalInput();
+  }
+
+  async function handleOpenSystemTerminal() {
+    if (!repoPath) {
+      return;
     }
+
+    try {
+      await window.gitObservatory.openSystemTerminal(repoPath);
+      setError("");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Failed to open a system terminal.");
+    }
+  }
 
   function toggleFilter(key: keyof GraphVisibilityFilters) {
     setFilters((current) => ({
@@ -775,7 +871,7 @@ export default function App() {
   }
 
   const editorVisible =
-    selection?.kind === "composer" ||
+    composerOpen ||
     selection?.kind === "working-tree" ||
     (selection?.kind === "staging" && Boolean(workspace?.files.some((file) => file.path === selection.path)));
 
@@ -786,6 +882,9 @@ export default function App() {
     selection?.kind === "node" ? graph?.nodes.find((node) => node.id === selection.id && node.type === "tree") ?? null : null;
   const selectedTreeExpanded = Boolean(selectedTreeNode?.oid && expansionState.expandedTreeOids.includes(selectedTreeNode.oid));
   const repoName = repoPath ? repoPath.split(/[\\/]/).at(-1) ?? repoPath : "No repo loaded";
+  const workingCount = graph?.workingArea.length ?? 0;
+  const stagingCount = graph?.stagingArea.length ?? 0;
+  const workspaceCount = workspace?.files.length ?? 0;
 
   if (!repoPath) {
     return (
@@ -845,11 +944,44 @@ export default function App() {
             <button className="go-secondary" disabled={busy} onClick={openRepository} type="button">
               Open Repository
             </button>
-            <button className="go-secondary" disabled={!repoPath || busy} onClick={() => handleSelect({ kind: "composer" })} type="button">
+            <button
+              className="go-secondary"
+              disabled={!repoPath || busy}
+              onClick={() => {
+                setComposerOpen(true);
+                setSelection(null);
+                setInspectorCollapsed(false);
+                setEditorPath("README.md");
+                setEditorContent("");
+              }}
+              type="button"
+            >
               New File
             </button>
             <button className="go-secondary" disabled={!repoPath || busy} onClick={() => void refreshState()} type="button">
               Refresh
+            </button>
+            <button className="go-secondary" disabled={!repoPath || busy} onClick={() => void handleOpenSystemTerminal()} type="button">
+              System Terminal
+            </button>
+            <button
+              className="go-secondary"
+              disabled={!repoPath || attachingTerminal}
+              onClick={() => {
+                setTerminalCollapsed((value) => {
+                  const next = !value;
+                  if (!next) {
+                    window.requestAnimationFrame(() => {
+                      syncTerminalSize();
+                      focusTerminalInput();
+                    });
+                  }
+                  return next;
+                });
+              }}
+              type="button"
+            >
+              {terminalCollapsed ? "Show Terminal" : "Hide Terminal"}
             </button>
             <button className="go-secondary" disabled={!selection && inspectorCollapsed} onClick={() => setInspectorCollapsed((value) => !value)} type="button">
               {inspectorCollapsed ? "Show Inspector" : "Hide Inspector"}
@@ -897,54 +1029,105 @@ export default function App() {
       <div className={inspectorCollapsed ? "graph-layout graph-layout--full" : "graph-layout"}>
         <div className="graph-layout__main">
           {snapshot && graph ? (
-            <GraphCanvas graph={graph} onSelectNode={handleSelect} />
+            <GraphCanvas
+              graph={graph}
+              onSelectNode={handleSelect}
+              subtitle="Run a command below and watch Git's saved structure change in the canvas."
+              title={
+                <span className="go-title-with-info">
+                  History Graph
+                  <InfoBadge
+                    label="History Graph"
+                    summary="This is the saved Git structure: HEAD, refs, commits, trees, and blobs."
+                    details={
+                      <ul className="go-info__list">
+                        <li>HEAD shows what you currently have checked out.</li>
+                        <li>Refs show branch or tag pointers.</li>
+                        <li>Commits, trees, and blobs show Git's saved objects.</li>
+                      </ul>
+                    }
+                  />
+                </span>
+              }
+            />
           ) : (
             <Panel title="Git Structure" subtitle="The graph is the primary surface of the app.">
               <EmptyState message="Create a practice repo or open an existing repository to start visualizing Git internals." />
             </Panel>
           )}
 
-          <div className="graph-layout__status">
-            <StatusPanel
-              items={graph?.workingArea ?? []}
-              kind="working"
-              onSelect={handleSelect}
-              selection={selection}
-              subtitle="Files currently different from Git's last committed or staged view."
-              title="Working Area"
-            />
-            <StatusPanel
-              items={graph?.stagingArea ?? []}
-              kind="staging"
-              onSelect={handleSelect}
-              selection={selection}
-              subtitle="Index entries that Git is prepared to turn into the next commit."
-              title="Staging Area"
-            />
+          <div className={terminalCollapsed ? "graph-terminal-drawer is-collapsed" : "graph-terminal-drawer"}>
+            <Panel
+              actions={
+                <div className="go-terminal-toolbar">
+                  <button
+                    className="go-secondary"
+                    disabled={!terminalRef.current}
+                    onClick={() => terminalRef.current?.clear()}
+                    type="button"
+                  >
+                    Clear
+                  </button>
+                </div>
+              }
+              title="Terminal"
+            >
+              <div className={terminalCollapsed ? "go-terminal-shell is-collapsed" : "go-terminal-shell"}>
+                <div
+                  className="go-terminal-resize-handle"
+                  onMouseDown={(event) => {
+                    dragStartRef.current = { y: event.clientY, height: terminalHeight };
+                    setIsResizingTerminal(true);
+                  }}
+                />
+                <div
+                  className={terminalCollapsed ? "go-terminal-host is-collapsed" : "go-terminal-host"}
+                  onClick={() => {
+                    if (!terminalCollapsed) {
+                      focusTerminalInput();
+                    }
+                  }}
+                  ref={terminalHostRef}
+                  tabIndex={terminalCollapsed ? -1 : 0}
+                >
+                  <div
+                    className="go-terminal-surface"
+                    ref={terminalContainerRef}
+                    style={{ height: terminalCollapsed ? "0px" : `${terminalHeight}px` }}
+                  />
+                </div>
+                <pre aria-hidden="true" className="go-terminal-debug-probe" data-testid="terminal-output-probe" ref={terminalDebugProbeRef} />
+              </div>
+            </Panel>
           </div>
+
         </div>
 
         {!inspectorCollapsed ? (
           <div className="graph-layout__inspector">
-            <InspectorPanel
-              inspector={inspector}
-              onRunTeachingCommand={handleRunTeachingCommand}
-              onSelectTab={setInspectorTab}
-              selectedTab={inspectorTab}
-            >
-              {selectedTreeNode ? (
-                <div className="graph-inspector-actions">
-                  <button className="go-secondary" onClick={toggleSelectedTreeExpansion} type="button">
-                    {selectedTreeExpanded ? "Collapse Tree In Graph" : "Expand Tree In Graph"}
+            {editorVisible ? (
+              <Panel
+                actions={
+                  <button
+                    className="go-secondary"
+                    onClick={() => {
+                      setComposerOpen(false);
+                      setSelection(null);
+                      setEditorPath("README.md");
+                      setEditorContent("");
+                    }}
+                    type="button"
+                  >
+                    Close
                   </button>
-                </div>
-              ) : null}
-
-              {editorVisible ? (
+                }
+                title="Workspace File"
+                subtitle="Create or edit a file directly from the right rail."
+              >
                 <div className="graph-editor">
                   <div className="graph-editor__header">
-                    <strong>Workspace File</strong>
-                    {selectedWorkspaceFilePath ? <span>{selectedWorkspaceFilePath}</span> : <span>Create a new file</span>}
+                    <strong>{selectedWorkspaceFilePath ? "Edit file" : "Create a file"}</strong>
+                    {selectedWorkspaceFilePath ? <span>{selectedWorkspaceFilePath}</span> : <span>New file</span>}
                   </div>
                   <input
                     onChange={(event) => setEditorPath(event.target.value)}
@@ -971,71 +1154,87 @@ export default function App() {
                     </button>
                   </div>
                 </div>
-              ) : null}
-            </InspectorPanel>
+              </Panel>
+            ) : null}
+
+            <Panel
+              title={
+                <span className="go-title-with-info">
+                  What Changed
+                  <InfoBadge
+                    label="What Changed"
+                    summary="These are the only two live areas that matter before the next commit: what changed on disk, and what Git has staged."
+                  />
+                </span>
+              }
+              subtitle="Open the list only when you want the file-level detail."
+            >
+              <div className="go-summary-chip-grid">
+                <button
+                  className={detailPanel === "working" ? "go-summary-chip is-active" : "go-summary-chip"}
+                  onClick={() => setDetailPanel((current) => (current === "working" ? null : "working"))}
+                  type="button"
+                >
+                  <strong>{workingCount}</strong>
+                  <span>Working Tree</span>
+                </button>
+                <button
+                  className={detailPanel === "staging" ? "go-summary-chip is-active" : "go-summary-chip"}
+                  onClick={() => setDetailPanel((current) => (current === "staging" ? null : "staging"))}
+                  type="button"
+                >
+                  <strong>{stagingCount}</strong>
+                  <span>Index</span>
+                </button>
+                <div className="go-summary-chip">
+                  <strong>{workspaceCount}</strong>
+                  <span>Workspace Files</span>
+                </div>
+              </div>
+            </Panel>
+
+            {detailPanel === "working" ? (
+              <StatusPanel
+                items={graph?.workingArea ?? []}
+                kind="working"
+                onSelect={handleSelect}
+                selection={selection}
+                subtitle="Files currently different from Git's last committed or staged view."
+                title="Working Tree Details"
+              />
+            ) : null}
+
+            {detailPanel === "staging" ? (
+              <StatusPanel
+                items={graph?.stagingArea ?? []}
+                kind="staging"
+                onSelect={handleSelect}
+                selection={selection}
+                subtitle="Index entries that Git is prepared to turn into the next commit."
+                title="Index Details"
+              />
+            ) : null}
+
+            <div className="graph-inspector-panel">
+              <InspectorPanel
+                inspector={selection?.kind === "composer" ? null : inspector}
+                onRunTeachingCommand={handleRunTeachingCommand}
+                onSelectTab={setInspectorTab}
+                selectedTab={inspectorTab}
+              >
+                {selectedTreeNode ? (
+                  <div className="graph-inspector-actions">
+                    <button className="go-secondary" onClick={toggleSelectedTreeExpansion} type="button">
+                      {selectedTreeExpanded ? "Collapse Tree In Graph" : "Expand Tree In Graph"}
+                    </button>
+                  </div>
+                ) : null}
+              </InspectorPanel>
+            </div>
           </div>
         ) : null}
       </div>
 
-      <Panel
-        actions={
-          <div className="go-terminal-toolbar">
-            <span>
-              {attachingTerminal
-                ? "Attaching shell..."
-                : terminalSession
-                  ? `${terminalSession.shell} @ ${terminalSession.cwd}`
-                  : "No shell attached"}
-            </span>
-            <button className="go-secondary" disabled={!repoPath} onClick={() => setTerminalCollapsed((value) => !value)} type="button">
-              {terminalCollapsed ? "Expand" : "Collapse"}
-            </button>
-            <button
-              className="go-secondary"
-              disabled={!terminalRef.current}
-              onClick={() => terminalRef.current?.clear()}
-              type="button"
-            >
-              Clear
-            </button>
-            <button className="go-secondary" disabled={!repoPath} onClick={() => void refreshState()} type="button">
-              Refresh Graph
-            </button>
-          </div>
-        }
-        subtitle={repoPath || "Open a repository or create a practice sandbox to attach a terminal."}
-        title="Terminal"
-      >
-        <div className={terminalCollapsed ? "go-terminal-shell is-collapsed" : "go-terminal-shell"}>
-          <div
-            className="go-terminal-resize-handle"
-            onMouseDown={(event) => {
-              dragStartRef.current = { y: event.clientY, height: terminalHeight };
-              setIsResizingTerminal(true);
-            }}
-          />
-          <div
-            className={terminalCollapsed ? "go-terminal-host is-collapsed" : "go-terminal-host"}
-            onClick={() => {
-              if (!terminalCollapsed) {
-                focusTerminalInput();
-              }
-            }}
-            ref={terminalHostRef}
-            tabIndex={terminalCollapsed ? -1 : 0}
-          >
-            <div
-              className="go-terminal-surface"
-              ref={terminalContainerRef}
-              style={{ height: terminalCollapsed ? "0px" : `${terminalHeight}px` }}
-            />
-          </div>
-          <pre aria-hidden="true" className="go-terminal-debug-probe" data-testid="terminal-output-probe">
-            {terminalDebugOutput}
-          </pre>
-          {terminalCollapsed ? <div className="go-terminal-collapsed">Terminal collapsed. Expand it to interact with the shell.</div> : null}
-        </div>
-      </Panel>
     </div>
   );
 }

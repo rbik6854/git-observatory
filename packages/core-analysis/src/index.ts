@@ -1,17 +1,39 @@
 import {
+  ChangePipelineBlob,
+  ChangePipelineViewModel,
+  CommandRecommendation,
+  GraphNode,
   GitObjectInspection,
   GraphEdge,
   GraphExpansionState,
+  HistoryGraphViewModel,
   GraphSelection,
   GraphViewModel,
   GraphVisibilityFilters,
   InspectorModel,
   InspectorTeachingModel,
   ParsedGitCommand,
+  parseGitCommand,
   RefDelta,
+  RemoteInspectResult,
+  RemoteOperationSummary,
+  RemoteViewModel,
+  RepoInvalidation,
+  RepoReadOptions,
   RepoStateSnapshot,
-  StateDelta
+  StateDelta,
+  TimelineEvent,
+  TransitionJournal,
+  TreeExplorerViewModel,
+  WorkspaceReadOptions,
+  classifyRisk
 } from "@git-observatory/core-domain";
+
+export interface GraphProjectionCache {
+  signature: string;
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+}
 
 function toMap<T>(items: T[], getKey: (item: T) => string): Map<string, T> {
   return new Map(items.map((item) => [getKey(item), item]));
@@ -85,12 +107,22 @@ export function diffSnapshots(before: RepoStateSnapshot, after: RepoStateSnapsho
       (entry) => entry.path,
       (entry) => `${entry.kind}:${entry.preview ?? ""}`
     ),
-    remoteChanged: diffKeys(
-      before.remotes,
-      after.remotes,
-      (remote) => remote.name,
-      (remote) => `${remote.fetchUrl ?? ""}:${remote.pushUrl ?? ""}`
-    ),
+    remoteChanged: [
+      ...diffKeys(
+        before.remotes,
+        after.remotes,
+        (remote) => remote.name,
+        (remote) => `${remote.fetchUrl ?? ""}:${remote.pushUrl ?? ""}`
+      ),
+      ...diffKeys(
+        before.remoteState.remoteRefs,
+        after.remoteState.remoteRefs,
+        (ref) => ref.name,
+        (ref) => `${ref.oid}:${ref.objectType}`
+      ),
+      ...(before.remoteState.upstreamRefName !== after.remoteState.upstreamRefName ? ["upstream"] : []),
+      ...(before.remoteState.divergence !== after.remoteState.divergence ? ["divergence"] : [])
+    ],
     packfilesChanged: JSON.stringify(before.packfiles) !== JSON.stringify(after.packfiles)
   };
 }
@@ -145,12 +177,27 @@ export function explainTransition(
       break;
     case "fetch":
       explanation.push("Git updated remote-tracking refs and downloaded object data without touching the current branch directly.");
+      if (after.remoteState.upstreamRefName) {
+        explanation.push(
+          `Upstream ${after.remoteState.upstreamRefName}: ahead ${after.remoteState.ahead}, behind ${after.remoteState.behind}, ${after.remoteState.divergence}.`
+        );
+      }
       break;
     case "pull":
       explanation.push("Git combined fetch with a merge or rebase workflow, which can update remote refs, local refs, and the working state.");
+      if (after.remoteState.upstreamRefName) {
+        explanation.push(
+          `After pull, ${after.remoteState.currentBranchName ?? "current branch"} is ${after.remoteState.divergence} relative to ${after.remoteState.upstreamRefName}.`
+        );
+      }
       break;
     case "push":
       explanation.push("Git attempted to publish local refs and associated objects to a remote destination.");
+      if (after.remoteState.upstreamRefName) {
+        explanation.push(
+          `Current upstream relation: ahead ${after.remoteState.ahead}, behind ${after.remoteState.behind}, ${after.remoteState.divergence}.`
+        );
+      }
       break;
     case "reset":
       explanation.push("Git moved refs and/or updated the index and working tree, depending on the reset mode.");
@@ -373,7 +420,9 @@ function blobNodeId(oid: string): string {
 function updateBlobNodePresentation(node: GraphViewModel["nodes"][number]) {
   const paths = Array.isArray(node.metadata.paths) ? node.metadata.paths.filter((item): item is string => typeof item === "string") : [];
   const primaryPath = paths[0] ?? (typeof node.metadata.path === "string" ? node.metadata.path : node.label);
-  node.label = paths.length > 1 ? `${basename(primaryPath)} +${paths.length - 1}` : basename(primaryPath);
+  node.label = basename(primaryPath);
+  node.metadata.pathCount = paths.length;
+  node.metadata.reused = paths.length > 1;
 }
 
 function resolveBlobCollisions(nodes: GraphViewModel["nodes"]) {
@@ -449,10 +498,10 @@ function buildTreeLayout(
           oid: entry.oid,
           target: null,
           position: { x: offsetX, y },
-          metadata: {
-            oid: entry.oid,
-            path: entry.path,
-            mode: entry.mode,
+            metadata: {
+              oid: entry.oid,
+              path: entry.path,
+              mode: entry.mode,
             treeOid,
             paths: [entry.path],
             referenceCount: 1,
@@ -518,19 +567,73 @@ function buildTreeLayout(
   });
 }
 
-export function projectGraph(params: {
+function buildGraphProjectionSignature(params: {
   snapshot: RepoStateSnapshot;
-  selection?: GraphSelection | null;
-  visibilityFilters?: GraphVisibilityFilters;
-  expansionState?: GraphExpansionState;
-  treeInspections?: Record<string, GitObjectInspection | undefined>;
-}): GraphViewModel {
+  visibilityFilters: GraphVisibilityFilters;
+  expansionState: GraphExpansionState;
+  treeInspections: Record<string, GitObjectInspection | undefined>;
+  includeIndexBlobs: boolean;
+  delta: StateDelta | null;
+}): string {
+  const { snapshot, visibilityFilters, expansionState, treeInspections, includeIndexBlobs, delta } = params;
+
+  const commits = snapshot.commitGraph
+    .map((commit) => `${commit.oid}:${commit.treeOid}:${commit.parents.join(",")}:${commit.subject}`)
+    .join("|");
+  const refs = snapshot.refs
+    .map((ref) => `${ref.name}:${ref.oid}:${ref.scope}:${ref.objectType}`)
+    .join("|");
+  const head = `${snapshot.head.detached}:${snapshot.head.target ?? ""}:${snapshot.head.oid ?? ""}`;
+  const expandedTrees = [...expansionState.expandedTreeOids].sort().join("|");
+  const treeState = [...expansionState.expandedTreeOids]
+    .sort()
+    .map((oid) => {
+      const inspection = treeInspections[oid];
+      if (!inspection || inspection.type !== "tree") {
+        return `${oid}:missing`;
+      }
+
+      return `${oid}:${inspection.entries.map((entry) => `${entry.type}:${entry.oid}:${entry.path}:${entry.mode}`).join(",")}`;
+    })
+    .join("|");
+  const indexBlobs = includeIndexBlobs && visibilityFilters.showBlobs
+    ? snapshot.index.map((entry) => `${entry.oid}:${entry.path}:${entry.stage}:${entry.mode}`).join("|")
+    : "";
+  const deltaSignature = delta
+    ? [
+        delta.objectsAdded.join(","),
+        delta.refsChanged.map((ref) => `${ref.name}:${ref.beforeOid ?? ""}:${ref.afterOid ?? ""}`).join(","),
+        delta.headChanged ? "head" : ""
+      ].join("|")
+    : "";
+
+  return [
+    commits,
+    refs,
+    head,
+    JSON.stringify(visibilityFilters),
+    expandedTrees,
+    treeState,
+    indexBlobs,
+    deltaSignature
+  ].join("||");
+}
+
+function buildGraphStructure(params: {
+  snapshot: RepoStateSnapshot;
+  visibilityFilters: GraphVisibilityFilters;
+  expansionState: GraphExpansionState;
+  treeInspections: Record<string, GitObjectInspection | undefined>;
+  includeIndexBlobs: boolean;
+  delta: StateDelta | null;
+}): { nodes: GraphNode[]; edges: GraphEdge[] } {
   const snapshot = params.snapshot;
-  const selection = params.selection ?? null;
-  const visibilityFilters = params.visibilityFilters ?? createDefaultGraphVisibilityFilters();
-  const expansionState = params.expansionState ?? createDefaultGraphExpansionState();
-  const treeInspections = params.treeInspections ?? {};
-  const nodes: GraphViewModel["nodes"] = [];
+  const visibilityFilters = params.visibilityFilters;
+  const expansionState = params.expansionState;
+  const treeInspections = params.treeInspections;
+  const includeIndexBlobs = params.includeIndexBlobs;
+  const delta = params.delta;
+  const nodes: GraphNode[] = [];
   const edges: GraphEdge[] = [];
   const nodeIdsByOid = new Map<string, string>();
   const commitY = new Map<string, number>();
@@ -551,7 +654,8 @@ export function projectGraph(params: {
         treeOid: commit.treeOid,
         parents: commit.parents,
         decorations: commit.decorations
-      }
+      },
+      emphasis: delta?.objectsAdded.includes(commit.oid) ? "new" : "default"
     });
     nodeIdsByOid.set(commit.oid, id);
   });
@@ -587,7 +691,8 @@ export function projectGraph(params: {
         objectType: ref.objectType,
         siblingCount: siblings.length,
         siblingIndex
-      }
+      },
+      emphasis: delta?.refsChanged.some((candidate) => candidate.name === ref.name) ? "changed" : "default"
     });
   });
 
@@ -609,7 +714,8 @@ export function projectGraph(params: {
       detached: snapshot.head.detached,
       target: snapshot.head.target,
       oid: snapshot.head.oid
-    }
+    },
+    emphasis: delta?.headChanged ? "changed" : "default"
   });
 
   if (visibilityFilters.showTrees) {
@@ -630,7 +736,8 @@ export function projectGraph(params: {
         metadata: {
           oid: commit.treeOid,
           commitOid: commit.oid
-        }
+        },
+        emphasis: delta?.objectsAdded.includes(commit.treeOid) ? "new" : "default"
       });
       nodeIdsByOid.set(commit.treeOid, id);
     });
@@ -640,11 +747,17 @@ export function projectGraph(params: {
     commit.parents.forEach((parent) => {
       if (nodeIdsByOid.has(parent)) {
         pushEdge(edges, `commit:${commit.oid}`, `commit:${parent}`, "parent");
+        if (delta?.objectsAdded.includes(commit.oid)) {
+          edges[edges.length - 1].emphasis = "changed";
+        }
       }
     });
 
     if (visibilityFilters.showTrees && nodeIdsByOid.has(commit.treeOid)) {
       pushEdge(edges, `commit:${commit.oid}`, `tree:${commit.treeOid}`, "contains");
+      if (delta?.objectsAdded.includes(commit.oid) || delta?.objectsAdded.includes(commit.treeOid)) {
+        edges[edges.length - 1].emphasis = "changed";
+      }
     }
   });
 
@@ -654,12 +767,21 @@ export function projectGraph(params: {
       return;
     }
     pushEdge(edges, `ref:${ref.name}`, targetId, "points-to");
+    if (delta?.refsChanged.some((candidate) => candidate.name === ref.name)) {
+      edges[edges.length - 1].emphasis = "changed";
+    }
   });
 
   if (snapshot.head.target && visibleRefs.some((ref) => ref.name === snapshot.head.target)) {
     pushEdge(edges, "head", `ref:${snapshot.head.target}`, "symbolic");
+    if (delta?.headChanged) {
+      edges[edges.length - 1].emphasis = "changed";
+    }
   } else if (snapshot.head.oid && nodeIdsByOid.has(snapshot.head.oid)) {
     pushEdge(edges, "head", nodeIdsByOid.get(snapshot.head.oid)!, "points-to");
+    if (delta?.headChanged) {
+      edges[edges.length - 1].emphasis = "changed";
+    }
   }
 
   if (visibilityFilters.showTrees) {
@@ -685,7 +807,7 @@ export function projectGraph(params: {
     });
   }
 
-  if (visibilityFilters.showBlobs) {
+  if (visibilityFilters.showBlobs && includeIndexBlobs) {
     snapshot.index.forEach((entry, index) => {
       const id = blobNodeId(entry.oid);
       const existingNode = nodes.find((node) => node.id === id);
@@ -708,7 +830,8 @@ export function projectGraph(params: {
             staged: true,
             stagedOnly: true,
             stagedPaths: [entry.path]
-          }
+          },
+          emphasis: delta?.objectsAdded.includes(entry.oid) ? "new" : delta?.indexChanged.includes(`${entry.path}:${entry.stage}`) ? "changed" : "default"
         });
         nodeIdsByOid.set(entry.oid, id);
         return;
@@ -726,24 +849,511 @@ export function projectGraph(params: {
 
   resolveBlobCollisions(nodes);
 
+  return { nodes, edges };
+}
+
+export function projectGraphIncremental(params: {
+  snapshot: RepoStateSnapshot;
+  selection?: GraphSelection | null;
+  visibilityFilters?: GraphVisibilityFilters;
+  expansionState?: GraphExpansionState;
+  treeInspections?: Record<string, GitObjectInspection | undefined>;
+  includeIndexBlobs?: boolean;
+  delta?: StateDelta | null;
+  cache?: GraphProjectionCache | null;
+}): { graph: GraphViewModel; cache: GraphProjectionCache } {
+  const snapshot = params.snapshot;
+  const selection = params.selection ?? null;
+  const visibilityFilters = params.visibilityFilters ?? createDefaultGraphVisibilityFilters();
+  const expansionState = params.expansionState ?? createDefaultGraphExpansionState();
+  const treeInspections = params.treeInspections ?? {};
+  const includeIndexBlobs = params.includeIndexBlobs ?? true;
+  const delta = params.delta ?? null;
+  const signature = buildGraphProjectionSignature({
+    snapshot,
+    visibilityFilters,
+    expansionState,
+    treeInspections,
+    includeIndexBlobs,
+    delta
+  });
+
+  const structural = params.cache?.signature === signature
+    ? { nodes: params.cache.nodes, edges: params.cache.edges }
+    : buildGraphStructure({
+        snapshot,
+        visibilityFilters,
+        expansionState,
+        treeInspections,
+        includeIndexBlobs,
+        delta
+      });
+
   return {
-    nodes,
-    edges,
+    graph: {
+      nodes: structural.nodes,
+      edges: structural.edges,
+      workingArea: snapshot.workingTree.map((file) => ({
+        id: `working:${file.path}`,
+        path: file.path,
+        indexStatus: file.indexStatus,
+        workTreeStatus: file.workTreeStatus,
+        emphasis: delta?.workingTreeChanged.includes(file.path) ? "changed" : "default"
+      })),
+      stagingArea: snapshot.index.map((entry) => ({
+        id: `staging:${entry.path}:${entry.stage}`,
+        path: entry.path,
+        oid: entry.oid,
+        mode: entry.mode,
+        stage: entry.stage,
+        emphasis: delta?.indexChanged.includes(`${entry.path}:${entry.stage}`) ? "changed" : "default"
+      })),
+      selection,
+      visibilityFilters
+    },
+    cache: {
+      signature,
+      nodes: structural.nodes,
+      edges: structural.edges
+    }
+  };
+}
+
+export function projectGraph(params: {
+  snapshot: RepoStateSnapshot;
+  selection?: GraphSelection | null;
+  visibilityFilters?: GraphVisibilityFilters;
+  expansionState?: GraphExpansionState;
+  treeInspections?: Record<string, GitObjectInspection | undefined>;
+  includeIndexBlobs?: boolean;
+  delta?: StateDelta | null;
+}): GraphViewModel {
+  return projectGraphIncremental(params).graph;
+}
+
+function summarizeHistory(snapshot: RepoStateSnapshot): string[] {
+  const summary = [`${snapshot.commitGraph.length} commits loaded`, `${snapshot.refs.length} refs visible`];
+  if (snapshot.performance.commitGraphTruncated) {
+    summary.push(`showing ${snapshot.performance.commitGraphRendered}/${snapshot.performance.commitGraphTotal} commits`);
+  }
+  return summary;
+}
+
+export function projectHistoryGraph(params: {
+  snapshot: RepoStateSnapshot;
+  selection?: GraphSelection | null;
+  delta?: StateDelta | null;
+}): HistoryGraphViewModel {
+  const graph = projectGraph({
+    snapshot: params.snapshot,
+    selection: params.selection,
+    visibilityFilters: {
+      showRefs: true,
+      showTrees: true,
+      showBlobs: false,
+      showTags: true
+    },
+    expansionState: createDefaultGraphExpansionState(),
+    treeInspections: {},
+    delta: params.delta ?? null
+  });
+
+  return {
+    nodes: graph.nodes.filter((node) => node.type !== "blob"),
+    edges: graph.edges.filter((edge) => {
+      const source = graph.nodes.find((node) => node.id === edge.source);
+      const target = graph.nodes.find((node) => node.id === edge.target);
+      return source?.type !== "blob" && target?.type !== "blob";
+    }),
+    selection: graph.selection,
+    summary: summarizeHistory(params.snapshot)
+  };
+}
+
+export function projectChangePipeline(params: {
+  snapshot: RepoStateSnapshot;
+  workspace?: { files: Array<{ path: string; loaded?: boolean; size?: number }> } | null;
+  delta?: StateDelta | null;
+}): ChangePipelineViewModel {
+  const { snapshot, delta = null } = params;
+  const stagedBlobMap = new Map<string, ChangePipelineBlob>();
+
+  snapshot.index.forEach((entry) => {
+    const id = blobNodeId(entry.oid);
+    const existing = stagedBlobMap.get(id);
+    if (!existing) {
+      stagedBlobMap.set(id, {
+        id,
+        oid: entry.oid,
+        label: basename(entry.path),
+        paths: [entry.path],
+        reused: false,
+        emphasis: delta?.objectsAdded.includes(entry.oid) ? "new" : delta?.indexChanged.includes(`${entry.path}:${entry.stage}`) ? "changed" : "default"
+      });
+      return;
+    }
+
+    existing.paths = ensureUniquePathList(existing.paths, entry.path);
+    existing.reused = existing.paths.length > 1;
+    existing.label = existing.reused ? `${basename(existing.paths[0])} +${existing.paths.length - 1}` : basename(existing.paths[0]);
+  });
+
+  const summary = [
+    `${snapshot.workingTree.length} working tree changes`,
+    `${snapshot.index.length} staged entries`,
+    `${stagedBlobMap.size} staged blob objects`
+  ];
+
+  if (snapshot.performance.workingTreeTruncated) {
+    summary.push(`showing ${snapshot.performance.workingTreeRendered}/${snapshot.performance.workingTreeTotal} working paths`);
+  }
+  if (snapshot.performance.indexTruncated) {
+    summary.push(`showing ${snapshot.performance.indexRendered}/${snapshot.performance.indexTotal} staged entries`);
+  }
+
+  return {
     workingArea: snapshot.workingTree.map((file) => ({
       id: `working:${file.path}`,
       path: file.path,
       indexStatus: file.indexStatus,
-      workTreeStatus: file.workTreeStatus
+      workTreeStatus: file.workTreeStatus,
+      emphasis: delta?.workingTreeChanged.includes(file.path) ? "changed" : "default"
     })),
     stagingArea: snapshot.index.map((entry) => ({
       id: `staging:${entry.path}:${entry.stage}`,
       path: entry.path,
       oid: entry.oid,
       mode: entry.mode,
-      stage: entry.stage
+      stage: entry.stage,
+      emphasis: delta?.indexChanged.includes(`${entry.path}:${entry.stage}`) ? "changed" : "default"
     })),
-    selection,
-    visibilityFilters
+    stagedBlobs: Array.from(stagedBlobMap.values()),
+    summary
+  };
+}
+
+export function projectTreeExplorer(params: {
+  selectedTreeOid: string | null;
+  inspection?: GitObjectInspection | null;
+}): TreeExplorerViewModel {
+  const inspection = params.inspection;
+  if (!params.selectedTreeOid || !inspection || inspection.type !== "tree") {
+    return {
+      rootOid: params.selectedTreeOid,
+      title: "Tree Explorer",
+      entries: [],
+      graph: null,
+      renderedEntries: 0,
+      totalEntries: 0,
+      truncated: false,
+      summary: ["Select a tree or commit to inspect the committed directory snapshot."]
+    };
+  }
+
+  const summary = [
+    `${inspection.summary.renderedEntries} entries rendered`,
+    `${inspection.summary.totalEntries} total entries`
+  ];
+  if (inspection.summary.truncated) {
+    summary.push("Load more to inspect additional tree entries.");
+  }
+
+  const nodes: GraphViewModel["nodes"] = [
+    {
+      id: `tree:${inspection.oid}`,
+      type: "tree",
+      label: "ROOT TREE",
+      oid: inspection.oid,
+      target: null,
+      position: { x: 90, y: 140 },
+      metadata: {
+        oid: inspection.oid,
+        root: true
+      }
+    }
+  ];
+  const edges: GraphViewModel["edges"] = [];
+
+  inspection.entries.forEach((entry, index) => {
+    const isTree = entry.type === "tree";
+    const id = `${entry.type}:${entry.oid}`;
+    nodes.push({
+      id,
+      type: isTree ? "tree" : "blob",
+      label: entry.path,
+      oid: entry.oid,
+      target: null,
+      position: {
+        x: isTree ? 380 : 670,
+        y: 54 + index * 112
+      },
+      metadata: {
+        oid: entry.oid,
+        path: entry.path,
+        mode: entry.mode,
+        parentTreeOid: inspection.oid
+      }
+    });
+    edges.push({
+      id: `contains:tree:${inspection.oid}:${id}`,
+      source: `tree:${inspection.oid}`,
+      target: id,
+      relationship: "contains"
+    });
+  });
+
+  const graph: GraphViewModel = {
+    nodes,
+    edges,
+    workingArea: [],
+    stagingArea: [],
+    selection: null,
+    visibilityFilters: {
+      showRefs: false,
+      showTrees: true,
+      showBlobs: true,
+      showTags: false
+    }
+  };
+
+  return {
+    rootOid: inspection.oid,
+    title: `Tree ${truncate(inspection.oid, 10)}`,
+    entries: inspection.entries,
+    graph,
+    renderedEntries: inspection.summary.renderedEntries,
+    totalEntries: inspection.summary.totalEntries,
+    truncated: inspection.summary.truncated,
+    summary
+  };
+}
+
+function recommendation(category: CommandRecommendation["category"], command: string, description: string, affectedStructures: CommandRecommendation["affectedStructures"]): CommandRecommendation {
+  const parsed = parseGitCommand(command);
+  return {
+    id: `${category}:${command}`,
+    category,
+    label: command,
+    command,
+    description,
+    affectedStructures,
+    risk: classifyRisk(parsed)
+  };
+}
+
+export function recommendCommands(snapshot: RepoStateSnapshot): CommandRecommendation[] {
+  const recommendations: CommandRecommendation[] = [];
+  const remote = snapshot.remoteState;
+
+  recommendations.push(
+    recommendation("Daily Flow", "git status", "Check the current working tree and index state.", ["changes"]),
+    recommendation("Investigation", "git log --graph --decorate --oneline --all -20", "Inspect recent branch and merge topology.", ["history"])
+  );
+
+  if (snapshot.workingTree.length > 0 && snapshot.index.length === 0) {
+    recommendations.push(
+      recommendation("Daily Flow", "git add .", "Stage the current working tree changes.", ["changes"]),
+      recommendation("Daily Flow", "git restore --staged .", "Unstage changes if you staged too much.", ["changes"])
+    );
+  }
+
+  if (snapshot.index.length > 0) {
+    recommendations.push(
+      recommendation("Daily Flow", "git commit -m \"Describe the change\"", "Turn staged state into a new commit.", ["changes", "history"])
+    );
+  }
+
+  if (remote.divergence === "behind") {
+    recommendations.push(
+      recommendation("Integration", "git fetch --all --prune", "Update remote-tracking refs before integrating.", ["remote", "history"]),
+      recommendation("Integration", "git pull --rebase", "Rebase local work on top of upstream.", ["remote", "history", "changes"])
+    );
+  } else if (remote.divergence === "ahead") {
+    recommendations.push(recommendation("Integration", "git push", "Publish local commits to the upstream remote.", ["remote", "history"]));
+  } else if (remote.divergence === "diverged") {
+    recommendations.push(
+      recommendation("Integration", "git fetch --all --prune", "Refresh remote-tracking refs before resolving divergence.", ["remote", "history"]),
+      recommendation("Integration", "git rebase @{upstream}", "Reapply local commits on top of upstream when appropriate.", ["remote", "history", "changes"])
+    );
+  }
+
+  if (snapshot.performance.isLargeRepo) {
+    recommendations.push(
+      recommendation("Large Repo / Maintenance", "git count-objects -v", "Inspect packfiles and loose-object pressure.", ["remote"]),
+      recommendation("Large Repo / Maintenance", "git worktree list", "Inspect parallel working trees commonly used in large repos.", ["history"]),
+      recommendation("Large Repo / Maintenance", "git gc", "Compact object storage when repository maintenance is needed.", ["remote"])
+    );
+  }
+
+  return recommendations;
+}
+
+export function projectRemoteView(snapshot: RepoStateSnapshot, lastOperation: RemoteOperationSummary | null = null): RemoteViewModel {
+  const remoteState = {
+    ...snapshot.remoteState,
+    lastOperation: lastOperation ?? snapshot.remoteState.lastOperation
+  };
+  const summary = [
+    remoteState.currentBranchName ? `Current branch: ${remoteState.currentBranchName}` : "Detached HEAD or no current branch",
+    remoteState.upstreamRefName ? `Upstream: ${remoteState.upstreamRefName}` : "No upstream configured",
+    `Divergence: ${remoteState.divergence}`
+  ];
+
+  if (remoteState.upstreamRefName) {
+    summary.push(`Ahead ${remoteState.ahead} / Behind ${remoteState.behind}`);
+  }
+
+  return {
+    remotes: remoteState.remotes,
+    remoteRefs: remoteState.remoteRefs,
+    currentBranchName: remoteState.currentBranchName,
+    currentBranchRef: remoteState.currentBranchRef,
+    upstreamRefName: remoteState.upstreamRefName,
+    divergence: remoteState.divergence,
+    ahead: remoteState.ahead,
+    behind: remoteState.behind,
+    lastOperation: remoteState.lastOperation,
+    recommendedCommands: recommendCommands(snapshot).filter((item) => item.affectedStructures.includes("remote")),
+    summary
+  };
+}
+
+export function createRepoInvalidation(params: { command?: string | null; changedPath?: string | null }): RepoInvalidation {
+  const command = params.command?.trim() ?? null;
+  const changedPath = params.changedPath ?? null;
+
+  if (command) {
+    const parsed = parseGitCommand(command);
+    switch (parsed.subcommand) {
+      case "add":
+      case "restore":
+      case "reset":
+      case "stash":
+        return { slices: ["changes", "timeline"], reason: parsed.subcommand, command };
+      case "commit":
+      case "switch":
+      case "checkout":
+      case "branch":
+      case "merge":
+      case "rebase":
+      case "cherry-pick":
+      case "revert":
+        return { slices: ["history", "changes", "timeline", "remote"], reason: parsed.subcommand, command };
+      case "fetch":
+      case "pull":
+      case "push":
+      case "remote":
+        return { slices: ["remote", "history", "timeline"], reason: parsed.subcommand, command };
+      default:
+        return { slices: ["history", "changes", "remote", "workspace", "timeline"], reason: parsed.subcommand, command };
+    }
+  }
+
+  if (!changedPath) {
+    return { slices: ["history", "changes", "remote", "workspace", "timeline"], reason: "unknown-watch" };
+  }
+
+  if (!changedPath.startsWith(".git/")) {
+    return { slices: ["workspace", "changes"], reason: "workspace-change", changedPath };
+  }
+
+  if (changedPath === ".git/index") {
+    return { slices: ["changes", "timeline"], reason: "index-change", changedPath };
+  }
+
+  if (changedPath === ".git/HEAD" || changedPath === ".git/packed-refs" || changedPath.startsWith(".git/refs/")) {
+    return { slices: ["history", "remote", "timeline"], reason: "ref-change", changedPath };
+  }
+
+  if (changedPath === ".git/FETCH_HEAD") {
+    return { slices: ["remote", "history", "timeline"], reason: "fetch-head", changedPath };
+  }
+
+  return { slices: ["history", "changes", "remote", "timeline"], reason: "git-metadata", changedPath };
+}
+
+export function createRepoReadOptions(invalidation: RepoInvalidation, current: RepoReadOptions = {}): RepoReadOptions {
+  return {
+    commitGraphLimit: current.commitGraphLimit ?? 24,
+    workingTreeLimit: current.workingTreeLimit ?? 60,
+    indexLimit: current.indexLimit ?? 60
+  };
+}
+
+export function createWorkspaceReadOptions(current: WorkspaceReadOptions = {}): WorkspaceReadOptions {
+  return {
+    fileLimit: current.fileLimit ?? 60
+  };
+}
+
+export function buildHistoryTimeline(snapshot: RepoStateSnapshot): TransitionJournal {
+  const events: TimelineEvent[] = snapshot.commitGraph
+    .slice()
+    .reverse()
+    .map((commit, index) => ({
+      id: `history:${commit.oid}`,
+      source: "history",
+      kind: "commit",
+      label: commit.subject || truncate(commit.oid, 10),
+      command: null,
+      explanation: [
+        `Commit ${truncate(commit.oid, 10)} became part of the loaded history.`,
+        `Tree ${truncate(commit.treeOid, 10)} captures the committed snapshot.`
+      ],
+      affectedStructures: ["history", "tree"],
+      beforeRef: index > 0 ? snapshot.commitGraph.slice().reverse()[index - 1]?.oid ?? null : null,
+      afterRef: commit.oid,
+      beforeSnapshotRef: null,
+      afterSnapshotRef: commit.oid,
+      commitOid: commit.oid,
+      transition: null
+    }));
+
+  return {
+    events,
+    hasMoreHistory: snapshot.performance.commitGraphTruncated,
+    loadedHistoryCount: events.length
+  };
+}
+
+export function appendSessionTransition(
+  journal: TransitionJournal,
+  transition: TimelineEvent
+): TransitionJournal {
+  return {
+    ...journal,
+    events: [...journal.events, transition]
+  };
+}
+
+export function createTimelineEventFromTransition(transition: import("@git-observatory/core-domain").StateTransition): TimelineEvent {
+  const affectedStructures: TimelineEvent["affectedStructures"] = [];
+  if (transition.delta.refsChanged.length > 0 || transition.delta.headChanged) {
+    affectedStructures.push("history");
+  }
+  if (transition.delta.indexChanged.length > 0 || transition.delta.workingTreeChanged.length > 0) {
+    affectedStructures.push("changes");
+  }
+  if (transition.delta.remoteChanged.length > 0) {
+    affectedStructures.push("remote");
+  }
+  if (transition.delta.objectsAdded.length > 0) {
+    affectedStructures.push("tree");
+  }
+
+  return {
+    id: `session:${transition.after.capturedAt}:${transition.command}`,
+    source: "session",
+    kind: "command",
+    label: transition.command,
+    command: transition.command,
+    explanation: transition.explanation,
+    affectedStructures,
+    beforeRef: transition.before.head.oid,
+    afterRef: transition.after.head.oid,
+    beforeSnapshotRef: transition.before.capturedAt,
+    afterSnapshotRef: transition.after.capturedAt,
+    transition
   };
 }
 
@@ -752,7 +1362,7 @@ export function buildInspectorModel(params: {
   graph: GraphViewModel;
   selection: GraphSelection;
   inspectedObject?: GitObjectInspection | null;
-  workspaceFiles?: Array<{ path: string; content: string; status: string }>;
+  workspaceFiles?: Array<{ path: string; content?: string; status: string }>;
 }): InspectorModel | null {
   const { snapshot, graph, selection, inspectedObject, workspaceFiles = [] } = params;
 
@@ -787,8 +1397,8 @@ export function buildInspectorModel(params: {
         { label: "Work tree status", value: file?.workTreeStatus || " " },
         { label: "Workspace status", value: workspaceFile?.status ?? "unknown" }
       ],
-      rawLines: workspaceFile ? workspaceFile.content.slice(0, 3000).split("\n") : []
-    };
+        rawLines: workspaceFile?.content ? workspaceFile.content.slice(0, 3000).split("\n") : []
+      };
   }
 
   if (selection.kind === "staging") {
@@ -905,18 +1515,27 @@ export function buildInspectorModel(params: {
 
   if (node.type === "blob") {
     const blob = inspectedObject?.type === "blob" ? inspectedObject : null;
+    const blobPaths = Array.isArray(node.metadata.paths)
+      ? node.metadata.paths.filter((item): item is string => typeof item === "string")
+      : [];
+    const blobPathSummary =
+      blobPaths.length <= 1 ? (blobPaths[0] ?? node.label) : `${blobPaths[0]} (+${blobPaths.length - 1} more paths with identical content)`;
 
     return {
       title: node.label,
       kind: "blob object",
-      summary: "A blob stores file content only, without the filename.",
+      summary:
+        blobPaths.length > 1
+          ? "A blob stores file content only. Multiple paths currently reuse this same saved content."
+          : "A blob stores file content only, without the filename.",
       whatThisIs: "Blob objects are Git's raw content storage units.",
       underTheHood:
         "Git hashes the file contents, compresses them, and stores them as a blob. Trees and the index are what attach names and paths to blobs.",
       teaching: buildTeachingModel({ snapshot, kind: "blob", oid: node.oid }),
       fields: [
         { label: "OID", value: node.oid ?? "", monospace: true },
-        { label: "Paths", value: Array.isArray(node.metadata.paths) ? node.metadata.paths.join(", ") : node.label },
+        { label: "Paths", value: blobPathSummary },
+        { label: "Path count", value: String(blobPaths.length || 1) },
         { label: "Preview bytes", value: String(blob?.preview.length ?? 0) }
       ],
       rawLines: blob ? blob.preview.split("\n") : stringifyRecord(node.metadata)

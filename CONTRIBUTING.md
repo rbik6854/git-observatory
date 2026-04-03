@@ -94,6 +94,13 @@ npm run build
 npm run test:e2e -- --reporter=line
 ```
 
+If your change touches terminal lifecycle, repo transition, or practice sandbox behavior, treat it as terminal-sensitive work and include:
+
+- `terminal-integration`
+- `playwright-e2e-debugging`
+
+Do not merge that class of change without rerunning the terminal e2e flow.
+
 ### 7. Produce a handoff
 
 Every contributor or agent should leave a handoff that records:

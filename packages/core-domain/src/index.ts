@@ -133,6 +133,29 @@ export interface RemoteSummary {
   pushUrl?: string;
 }
 
+export type RemoteDivergenceStatus = "in-sync" | "ahead" | "behind" | "diverged" | "no-upstream";
+
+export interface RemoteOperationSummary {
+  kind: "fetch" | "pull" | "push";
+  command: string;
+  timestamp: string;
+  status: "success" | "failed";
+  stdout: string;
+  stderr: string;
+}
+
+export interface RemoteStateSnapshot {
+  remotes: RemoteSummary[];
+  remoteRefs: RefSummary[];
+  currentBranchName: string | null;
+  currentBranchRef: string | null;
+  upstreamRefName: string | null;
+  ahead: number;
+  behind: number;
+  divergence: RemoteDivergenceStatus;
+  lastOperation: RemoteOperationSummary | null;
+}
+
 export interface PackfileSummary {
   count: number;
   sizeKiB: number;
@@ -142,6 +165,23 @@ export interface PackfileSummary {
   prunePackable: number;
   garbage: number;
   sizeGarbageKiB: number;
+}
+
+export interface RepoPerformanceProfile {
+  isLargeRepo: boolean;
+  commitGraphTotal: number;
+  commitGraphRendered: number;
+  commitGraphTruncated: boolean;
+  workingTreeTotal: number;
+  workingTreeRendered: number;
+  workingTreeTruncated: boolean;
+  indexTotal: number;
+  indexRendered: number;
+  indexTruncated: boolean;
+  workspaceFilesTotal: number;
+  workspaceFilesRendered: number;
+  workspaceFilesTruncated: boolean;
+  treeEntriesRenderedLimit: number;
 }
 
 export interface RepoStateSnapshot {
@@ -157,7 +197,9 @@ export interface RepoStateSnapshot {
   gitDirectory: GitDirectoryEntry[];
   operations: OperationStateSummary;
   remotes: RemoteSummary[];
+  remoteState: RemoteStateSnapshot;
   packfiles: PackfileSummary;
+  performance: RepoPerformanceProfile;
   notes: string[];
 }
 
@@ -199,6 +241,7 @@ export interface WorkingAreaItem {
   path: string;
   indexStatus: string;
   workTreeStatus: string;
+  emphasis?: "default" | "new" | "changed";
 }
 
 export interface StagingAreaItem {
@@ -207,6 +250,7 @@ export interface StagingAreaItem {
   oid: string;
   mode: string;
   stage: number;
+  emphasis?: "default" | "new" | "changed";
 }
 
 export interface GraphVisibilityFilters {
@@ -223,6 +267,10 @@ export interface GraphViewModel {
   stagingArea: StagingAreaItem[];
   selection: GraphSelection | null;
   visibilityFilters: GraphVisibilityFilters;
+}
+
+export interface HistoryGraphViewModel extends Pick<GraphViewModel, "nodes" | "edges" | "selection"> {
+  summary: string[];
 }
 
 export interface GraphExpansionState {
@@ -304,6 +352,12 @@ export interface GitTreeEntryDetail {
   path: string;
 }
 
+export interface TreeInspectionSummary {
+  renderedEntries: number;
+  totalEntries: number;
+  truncated: boolean;
+}
+
 export type GitObjectInspection =
   | {
       type: "blob";
@@ -318,6 +372,7 @@ export type GitObjectInspection =
       size: number;
       storage: GitObjectStorage;
       entries: GitTreeEntryDetail[];
+      summary: TreeInspectionSummary;
     }
   | {
       type: "commit";
@@ -364,6 +419,130 @@ export interface StateDelta {
   gitDirectoryChanged: string[];
   remoteChanged: string[];
   packfilesChanged: boolean;
+}
+
+export interface ChangePipelineBlob {
+  id: string;
+  oid: string;
+  label: string;
+  paths: string[];
+  reused: boolean;
+  emphasis?: "default" | "new" | "changed";
+}
+
+export interface ChangePipelineViewModel {
+  workingArea: WorkingAreaItem[];
+  stagingArea: StagingAreaItem[];
+  stagedBlobs: ChangePipelineBlob[];
+  summary: string[];
+}
+
+export interface TreeExplorerViewModel {
+  rootOid: string | null;
+  title: string;
+  entries: GitTreeEntryDetail[];
+  graph: GraphViewModel | null;
+  renderedEntries: number;
+  totalEntries: number;
+  truncated: boolean;
+  summary: string[];
+}
+
+export interface CommandRecommendation {
+  id: string;
+  category: "Daily Flow" | "Integration" | "Investigation" | "Large Repo / Maintenance";
+  label: string;
+  command: string;
+  description: string;
+  affectedStructures: Array<"history" | "changes" | "tree" | "remote">;
+  risk: RiskClassification;
+}
+
+export interface RemoteViewModel {
+  remotes: RemoteSummary[];
+  remoteRefs: RefSummary[];
+  currentBranchName: string | null;
+  currentBranchRef: string | null;
+  upstreamRefName: string | null;
+  divergence: RemoteDivergenceStatus;
+  ahead: number;
+  behind: number;
+  lastOperation: RemoteOperationSummary | null;
+  recommendedCommands: CommandRecommendation[];
+  summary: string[];
+}
+
+export type TimelineEventSource = "history" | "session";
+export type TimelineEventKind = "commit" | "ref" | "head" | "changes" | "remote" | "command";
+
+export interface TimelineEvent {
+  id: string;
+  source: TimelineEventSource;
+  kind: TimelineEventKind;
+  label: string;
+  command: string | null;
+  explanation: string[];
+  affectedStructures: Array<"history" | "changes" | "tree" | "remote">;
+  beforeRef: string | null;
+  afterRef: string | null;
+  beforeSnapshotRef: string | null;
+  afterSnapshotRef: string | null;
+  commitOid?: string | null;
+  transition?: StateTransition | null;
+}
+
+export interface TransitionJournal {
+  events: TimelineEvent[];
+  hasMoreHistory: boolean;
+  loadedHistoryCount: number;
+}
+
+export type RepoSliceName = "history" | "changes" | "tree" | "workspace" | "remote" | "timeline";
+
+export interface RepoInvalidation {
+  slices: RepoSliceName[];
+  reason: string;
+  changedPath?: string | null;
+  command?: string | null;
+}
+
+export interface RepoSessionState {
+  repoPath: string;
+  rawSnapshot: RepoStateSnapshot;
+  historySlice: Pick<RepoStateSnapshot, "head" | "refs" | "commitGraph" | "performance">;
+  changeSlice: Pick<RepoStateSnapshot, "workingTree" | "index" | "performance">;
+  treeSlice: {
+    selectedTreeOid: string | null;
+    inspections: Record<string, GitObjectInspection | undefined>;
+  };
+  workspaceSlice: LessonWorkspace;
+  remoteSlice: RemoteStateSnapshot;
+  timelineSlice: TransitionJournal;
+}
+
+export interface RepoReadOptions {
+  commitGraphLimit?: number;
+  workingTreeLimit?: number;
+  indexLimit?: number;
+}
+
+export interface WorkspaceReadOptions {
+  fileLimit?: number;
+}
+
+export interface TreeReadOptions {
+  entryLimit?: number;
+}
+
+export interface RemoteAdvertisedRef {
+  name: string;
+  oid: string;
+}
+
+export interface RemoteInspectResult {
+  remoteName: string;
+  advertisedRefs: RemoteAdvertisedRef[];
+  fetchedAt: string;
 }
 
 export interface RecoveryCheckpoint {
@@ -441,8 +620,10 @@ export interface LessonChapter {
 
 export interface LessonWorkspaceFile {
   path: string;
-  content: string;
+  content?: string;
   status: LessonWorkspaceFileStatus;
+  loaded: boolean;
+  size: number;
 }
 
 export interface LessonWorkspace {
@@ -450,6 +631,7 @@ export interface LessonWorkspace {
   files: LessonWorkspaceFile[];
   selectedPath: string | null;
   terminalUnlocked: boolean;
+  performance: Pick<RepoPerformanceProfile, "workspaceFilesTotal" | "workspaceFilesRendered" | "workspaceFilesTruncated" | "isLargeRepo">;
   modifiedAt: string;
 }
 
@@ -467,15 +649,17 @@ export interface SandboxCreationResult {
 }
 
 export interface GitExecutionAdapter {
-  inspectRepo(repoPath: string): Promise<RepoStateSnapshot>;
+  inspectRepo(repoPath: string, options?: RepoReadOptions): Promise<RepoStateSnapshot>;
   executeCommand(repoPath: string, command: string): Promise<StateTransition>;
   createCheckpoint(repoPath: string): Promise<RecoveryCheckpoint>;
   createSandbox(kind: SandboxKind, rootPath: string, sessionId: string, name?: string): Promise<SandboxCreationResult>;
-  inspectObject(repoPath: string, oid: string): Promise<GitObjectInspection | null>;
+  inspectObject(repoPath: string, oid: string, options?: TreeReadOptions): Promise<GitObjectInspection | null>;
+  inspectRemote(repoPath: string, remoteName: string): Promise<RemoteInspectResult>;
 }
 
 export interface WorkspaceAdapter {
-  readWorkspace(repoPath: string): Promise<LessonWorkspace>;
+  readWorkspace(repoPath: string, options?: WorkspaceReadOptions): Promise<LessonWorkspace>;
+  readFile(repoPath: string, filePath: string): Promise<LessonWorkspaceFile | null>;
   createFile(repoPath: string, filePath: string, content: string): Promise<LessonWorkspace>;
   updateFile(repoPath: string, filePath: string, content: string): Promise<LessonWorkspace>;
   deleteFile(repoPath: string, filePath: string): Promise<LessonWorkspace>;
@@ -485,6 +669,7 @@ export interface SandboxManager {
   createSandbox(kind: SandboxKind, name?: string): Promise<SandboxCreationResult>;
   registerSandbox(sandbox: SandboxDescriptor): void;
   listSessionSandboxes(): SandboxDescriptor[];
+  removeSandbox(repoPath: string): Promise<void>;
   cleanupSessionSandboxes(): Promise<void>;
   cleanupStaleSandboxes(): Promise<void>;
 }
@@ -598,6 +783,17 @@ export function createEmptySnapshot(repoPath: string, notes: string[] = []): Rep
       stashCount: 0
     },
     remotes: [],
+    remoteState: {
+      remotes: [],
+      remoteRefs: [],
+      currentBranchName: null,
+      currentBranchRef: null,
+      upstreamRefName: null,
+      ahead: 0,
+      behind: 0,
+      divergence: "no-upstream",
+      lastOperation: null
+    },
     packfiles: {
       count: 0,
       sizeKiB: 0,
@@ -607,6 +803,22 @@ export function createEmptySnapshot(repoPath: string, notes: string[] = []): Rep
       prunePackable: 0,
       garbage: 0,
       sizeGarbageKiB: 0
+    },
+    performance: {
+      isLargeRepo: false,
+      commitGraphTotal: 0,
+      commitGraphRendered: 0,
+      commitGraphTruncated: false,
+      workingTreeTotal: 0,
+      workingTreeRendered: 0,
+      workingTreeTruncated: false,
+      indexTotal: 0,
+      indexRendered: 0,
+      indexTruncated: false,
+      workspaceFilesTotal: 0,
+      workspaceFilesRendered: 0,
+      workspaceFilesTruncated: false,
+      treeEntriesRenderedLimit: 150
     },
     notes
   };
@@ -618,6 +830,12 @@ export function createEmptyWorkspace(repoPath: string): LessonWorkspace {
     files: [],
     selectedPath: null,
     terminalUnlocked: false,
+    performance: {
+      isLargeRepo: false,
+      workspaceFilesTotal: 0,
+      workspaceFilesRendered: 0,
+      workspaceFilesTruncated: false
+    },
     modifiedAt: new Date().toISOString()
   };
 }
