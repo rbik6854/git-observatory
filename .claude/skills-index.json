@@ -1,0 +1,9 @@
+{
+  "adapter": "claude",
+  "canonicalRegistry": ".agents/skills-index.json",
+  "overridePolicy": "adapter-only",
+  "notes": [
+    "Use docs/agents/skills as the source of truth.",
+    "Tool-specific customization is limited to metadata, file location, and invocation wiring."
+  ]
+}

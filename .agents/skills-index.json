@@ -1,0 +1,210 @@
+{
+  "version": 1,
+  "canonicalRoot": "docs/agents/skills",
+  "skills": [
+    {
+      "id": "repo-map",
+      "canonicalPath": "docs/agents/skills/repo-map.md",
+      "adapters": {
+        "codex": ".codex/skills-index.json",
+        "claude": ".claude/skills-index.json",
+        "vscode": ".vscode/agent-skills.json"
+      },
+      "roles": ["planner", "implementer", "reviewer", "researcher", "recommender"],
+      "taskCategories": ["planning", "analysis", "implementation"],
+      "validationCommands": []
+    },
+    {
+      "id": "workspace-commands",
+      "canonicalPath": "docs/agents/skills/workspace-commands.md",
+      "adapters": {
+        "codex": ".codex/skills-index.json",
+        "claude": ".claude/skills-index.json",
+        "vscode": ".vscode/agent-skills.json"
+      },
+      "roles": ["implementer", "tester", "reviewer"],
+      "taskCategories": ["implementation", "validation"],
+      "validationCommands": ["npm test", "npm run build"]
+    },
+    {
+      "id": "package-boundaries",
+      "canonicalPath": "docs/agents/skills/package-boundaries.md",
+      "adapters": {
+        "codex": ".codex/skills-index.json",
+        "claude": ".claude/skills-index.json",
+        "vscode": ".vscode/agent-skills.json"
+      },
+      "roles": ["planner", "implementer", "reviewer", "architecture-reviewer"],
+      "taskCategories": ["planning", "architecture", "implementation"],
+      "validationCommands": []
+    },
+    {
+      "id": "graph-layout-changes",
+      "canonicalPath": "docs/agents/skills/graph-layout-changes.md",
+      "adapters": {
+        "codex": ".codex/skills-index.json",
+        "claude": ".claude/skills-index.json",
+        "vscode": ".vscode/agent-skills.json"
+      },
+      "roles": ["implementer", "ux-auditor", "reviewer"],
+      "taskCategories": ["ui", "graph"],
+      "validationCommands": ["npm test", "npm run build"]
+    },
+    {
+      "id": "terminal-integration",
+      "canonicalPath": "docs/agents/skills/terminal-integration.md",
+      "adapters": {
+        "codex": ".codex/skills-index.json",
+        "claude": ".claude/skills-index.json",
+        "vscode": ".vscode/agent-skills.json"
+      },
+      "roles": ["implementer", "tester", "reviewer"],
+      "taskCategories": ["electron", "terminal"],
+      "validationCommands": ["npm test", "npm run build", "npm run test:e2e -- --reporter=line"]
+    },
+    {
+      "id": "repo-watch-refresh",
+      "canonicalPath": "docs/agents/skills/repo-watch-refresh.md",
+      "adapters": {
+        "codex": ".codex/skills-index.json",
+        "claude": ".claude/skills-index.json",
+        "vscode": ".vscode/agent-skills.json"
+      },
+      "roles": ["implementer", "researcher", "tester"],
+      "taskCategories": ["performance", "watchers"],
+      "validationCommands": ["npm test", "npm run build"]
+    },
+    {
+      "id": "git-object-projection",
+      "canonicalPath": "docs/agents/skills/git-object-projection.md",
+      "adapters": {
+        "codex": ".codex/skills-index.json",
+        "claude": ".claude/skills-index.json",
+        "vscode": ".vscode/agent-skills.json"
+      },
+      "roles": ["implementer", "researcher", "reviewer"],
+      "taskCategories": ["git-correctness", "projection"],
+      "validationCommands": ["npm test", "npm run build"]
+    },
+    {
+      "id": "inspector-ui-work",
+      "canonicalPath": "docs/agents/skills/inspector-ui-work.md",
+      "adapters": {
+        "codex": ".codex/skills-index.json",
+        "claude": ".claude/skills-index.json",
+        "vscode": ".vscode/agent-skills.json"
+      },
+      "roles": ["implementer", "ux-auditor", "reviewer"],
+      "taskCategories": ["ui", "inspector"],
+      "validationCommands": ["npm test", "npm run build"]
+    },
+    {
+      "id": "electron-runtime-debugging",
+      "canonicalPath": "docs/agents/skills/electron-runtime-debugging.md",
+      "adapters": {
+        "codex": ".codex/skills-index.json",
+        "claude": ".claude/skills-index.json",
+        "vscode": ".vscode/agent-skills.json"
+      },
+      "roles": ["implementer", "tester", "researcher"],
+      "taskCategories": ["electron", "debugging"],
+      "validationCommands": ["npm test", "npm run build", "npm run test:e2e -- --reporter=line"]
+    },
+    {
+      "id": "blank-window-triage",
+      "canonicalPath": "docs/agents/skills/blank-window-triage.md",
+      "adapters": {
+        "codex": ".codex/skills-index.json",
+        "claude": ".claude/skills-index.json",
+        "vscode": ".vscode/agent-skills.json"
+      },
+      "roles": ["implementer", "tester", "researcher"],
+      "taskCategories": ["electron", "debugging"],
+      "validationCommands": ["npm test", "npm run build", "npm run test:e2e -- --reporter=line"]
+    },
+    {
+      "id": "playwright-e2e-debugging",
+      "canonicalPath": "docs/agents/skills/playwright-e2e-debugging.md",
+      "adapters": {
+        "codex": ".codex/skills-index.json",
+        "claude": ".claude/skills-index.json",
+        "vscode": ".vscode/agent-skills.json"
+      },
+      "roles": ["tester", "implementer", "reviewer"],
+      "taskCategories": ["testing", "e2e"],
+      "validationCommands": ["npm run test:e2e -- --reporter=line"]
+    },
+    {
+      "id": "performance-refresh-loop-triage",
+      "canonicalPath": "docs/agents/skills/performance-refresh-loop-triage.md",
+      "adapters": {
+        "codex": ".codex/skills-index.json",
+        "claude": ".claude/skills-index.json",
+        "vscode": ".vscode/agent-skills.json"
+      },
+      "roles": ["researcher", "implementer", "tester"],
+      "taskCategories": ["performance", "debugging"],
+      "validationCommands": ["npm test", "npm run build"]
+    },
+    {
+      "id": "git-state-correctness-check",
+      "canonicalPath": "docs/agents/skills/git-state-correctness-check.md",
+      "adapters": {
+        "codex": ".codex/skills-index.json",
+        "claude": ".claude/skills-index.json",
+        "vscode": ".vscode/agent-skills.json"
+      },
+      "roles": ["researcher", "reviewer", "implementer"],
+      "taskCategories": ["git-correctness", "analysis"],
+      "validationCommands": ["npm test", "npm run build"]
+    },
+    {
+      "id": "feature-recommendation",
+      "canonicalPath": "docs/agents/skills/feature-recommendation.md",
+      "adapters": {
+        "codex": ".codex/skills-index.json",
+        "claude": ".claude/skills-index.json",
+        "vscode": ".vscode/agent-skills.json"
+      },
+      "roles": ["recommender", "researcher"],
+      "taskCategories": ["recommendation", "planning"],
+      "validationCommands": ["npm run agents:recommend"]
+    },
+    {
+      "id": "ux-critique",
+      "canonicalPath": "docs/agents/skills/ux-critique.md",
+      "adapters": {
+        "codex": ".codex/skills-index.json",
+        "claude": ".claude/skills-index.json",
+        "vscode": ".vscode/agent-skills.json"
+      },
+      "roles": ["ux-auditor", "reviewer", "recommender"],
+      "taskCategories": ["ux", "review"],
+      "validationCommands": []
+    },
+    {
+      "id": "architecture-review",
+      "canonicalPath": "docs/agents/skills/architecture-review.md",
+      "adapters": {
+        "codex": ".codex/skills-index.json",
+        "claude": ".claude/skills-index.json",
+        "vscode": ".vscode/agent-skills.json"
+      },
+      "roles": ["planner", "reviewer", "researcher", "recommender"],
+      "taskCategories": ["architecture", "review"],
+      "validationCommands": []
+    },
+    {
+      "id": "test-gap-analysis",
+      "canonicalPath": "docs/agents/skills/test-gap-analysis.md",
+      "adapters": {
+        "codex": ".codex/skills-index.json",
+        "claude": ".claude/skills-index.json",
+        "vscode": ".vscode/agent-skills.json"
+      },
+      "roles": ["tester", "reviewer", "recommender"],
+      "taskCategories": ["testing", "review"],
+      "validationCommands": ["npm test", "npm run test:e2e -- --reporter=line"]
+    }
+  ]
+}

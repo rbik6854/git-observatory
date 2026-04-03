@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://git-observatory.dev/schemas/agent-handoff.schema.json",
+  "title": "AgentHandoff",
+  "type": "object",
+  "required": [
+    "taskId",
+    "role",
+    "filesChanged",
+    "validationsRun",
+    "outcomes",
+    "assumptions",
+    "risks",
+    "nextSteps"
+  ],
+  "properties": {
+    "taskId": { "type": "string" },
+    "role": { "type": "string" },
+    "filesChanged": { "type": "array", "items": { "type": "string" } },
+    "validationsRun": { "type": "array", "items": { "type": "string" } },
+    "outcomes": { "type": "array", "items": { "type": "string" } },
+    "assumptions": { "type": "array", "items": { "type": "string" } },
+    "risks": { "type": "array", "items": { "type": "string" } },
+    "nextSteps": { "type": "array", "items": { "type": "string" } }
+  }
+}

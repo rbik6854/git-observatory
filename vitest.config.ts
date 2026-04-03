@@ -3,7 +3,7 @@ import path from "node:path";
 
 export default defineConfig({
   test: {
-    include: ["packages/**/*.test.ts"]
+    include: ["packages/**/*.test.ts", "tests/**/*.test.ts"]
   },
   resolve: {
     alias: {
@@ -15,4 +15,3 @@ export default defineConfig({
     }
   }
 });
-

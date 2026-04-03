@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://git-observatory.dev/schemas/execution-manifest.schema.json",
+  "title": "ExecutionManifest",
+  "type": "object",
+  "required": ["taskId", "planner", "generatedAt", "mergeOrder", "subtasks"],
+  "properties": {
+    "taskId": { "type": "string" },
+    "planner": { "type": "string" },
+    "generatedAt": { "type": "string" },
+    "mergeOrder": { "type": "array", "items": { "type": "string" } },
+    "subtasks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "role", "goal", "ownedPaths", "recommendedSkills", "validationCommands", "acceptanceCriteria"],
+        "properties": {
+          "id": { "type": "string" },
+          "role": { "type": "string" },
+          "goal": { "type": "string" },
+          "ownedPaths": { "type": "array", "items": { "type": "string" } },
+          "recommendedSkills": { "type": "array", "items": { "type": "string" } },
+          "validationCommands": { "type": "array", "items": { "type": "string" } },
+          "acceptanceCriteria": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://git-observatory.dev/schemas/agent-task.schema.json",
+  "title": "AgentTaskSpec",
+  "type": "object",
+  "required": [
+    "id",
+    "source",
+    "goal",
+    "scope",
+    "nonGoals",
+    "ownedPaths",
+    "acceptanceCriteria",
+    "validationCommands",
+    "dependencies",
+    "recommendedRole",
+    "recommendedSkills",
+    "parallelWorkstreams",
+    "metadata"
+  ],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "source": {
+      "type": "object",
+      "required": ["kind", "value"],
+      "properties": {
+        "kind": { "type": "string" },
+        "value": { "type": "string" }
+      }
+    },
+    "goal": { "type": "string", "minLength": 1 },
+    "scope": { "type": "array", "items": { "type": "string" } },
+    "nonGoals": { "type": "array", "items": { "type": "string" } },
+    "ownedPaths": { "type": "array", "items": { "type": "string" } },
+    "acceptanceCriteria": { "type": "array", "items": { "type": "string" } },
+    "validationCommands": { "type": "array", "items": { "type": "string" } },
+    "dependencies": { "type": "array", "items": { "type": "string" } },
+    "recommendedRole": { "type": "string" },
+    "recommendedSkills": { "type": "array", "items": { "type": "string" } },
+    "context": { "type": "string" },
+    "parallelWorkstreams": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "goal", "role", "ownedPaths", "recommendedSkills", "validationCommands", "acceptanceCriteria"],
+        "properties": {
+          "id": { "type": "string" },
+          "goal": { "type": "string" },
+          "role": { "type": "string" },
+          "ownedPaths": { "type": "array", "items": { "type": "string" } },
+          "recommendedSkills": { "type": "array", "items": { "type": "string" } },
+          "validationCommands": { "type": "array", "items": { "type": "string" } },
+          "acceptanceCriteria": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "required": ["priority", "labels"],
+      "properties": {
+        "priority": { "type": "string" },
+        "labels": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

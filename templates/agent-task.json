@@ -1,0 +1,39 @@
+{
+  "id": "local-example-task",
+  "source": {
+    "kind": "local-task",
+    "value": "manual"
+  },
+  "goal": "Describe the change the agent should complete.",
+  "scope": [
+    "What is in scope"
+  ],
+  "nonGoals": [
+    "What is out of scope"
+  ],
+  "ownedPaths": [
+    "apps/desktop-shell/src/renderer"
+  ],
+  "acceptanceCriteria": [
+    "User-visible behavior is correct.",
+    "Validation evidence is recorded."
+  ],
+  "validationCommands": [
+    "npm test",
+    "npm run build"
+  ],
+  "dependencies": [],
+  "recommendedRole": "implementer",
+  "recommendedSkills": [
+    "repo-map",
+    "workspace-commands"
+  ],
+  "context": "Optional extra background for the task.",
+  "parallelWorkstreams": [],
+  "metadata": {
+    "priority": "medium",
+    "labels": [
+      "agent-task"
+    ]
+  }
+}

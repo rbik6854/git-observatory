@@ -1,0 +1,37 @@
+{
+  "goal": "Audit the terminal flow for stuck editor sessions and improve the exit path.",
+  "scope": [
+    "Review terminal interaction inside the Electron desktop shell.",
+    "Document the safe path for editor-driven commit messages."
+  ],
+  "nonGoals": [
+    "Do not redesign the graph canvas."
+  ],
+  "ownedPaths": [
+    "apps/desktop-shell/src/main.ts",
+    "apps/desktop-shell/src/renderer/App.tsx",
+    "tests/e2e"
+  ],
+  "acceptanceCriteria": [
+    "The task packet names the terminal integration paths explicitly.",
+    "Validation commands are present."
+  ],
+  "validationCommands": [
+    "npm test",
+    "npm run build",
+    "npm run test:e2e -- --reporter=line"
+  ],
+  "recommendedRole": "implementer",
+  "recommendedSkills": [
+    "terminal-integration",
+    "playwright-e2e-debugging"
+  ],
+  "context": "Use this file as a sample for local task intake.",
+  "metadata": {
+    "priority": "medium",
+    "labels": [
+      "example",
+      "terminal"
+    ]
+  }
+}

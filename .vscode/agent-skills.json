@@ -1,0 +1,9 @@
+{
+  "adapter": "vscode",
+  "canonicalRegistry": ".agents/skills-index.json",
+  "overridePolicy": "adapter-only",
+  "notes": [
+    "Use docs/agents/skills as the source of truth.",
+    "VS Code integration should not fork workflow or validation behavior."
+  ]
+}

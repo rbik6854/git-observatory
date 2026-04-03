@@ -4,3 +4,5 @@ dist-electron/
 coverage/
 .vite/
 *.log
+test-results/
+.agent-worktrees/

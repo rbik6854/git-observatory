@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://git-observatory.dev/schemas/recommendation-report.schema.json",
+  "title": "RecommendationReport",
+  "type": "object",
+  "required": ["category", "generatedAt", "evidence", "recommendation"],
+  "properties": {
+    "category": { "type": "string" },
+    "generatedAt": { "type": "string" },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "goal", "impact", "confidence"],
+        "properties": {
+          "id": { "type": "string" },
+          "goal": { "type": "string" },
+          "impact": { "type": "string" },
+          "confidence": { "type": "number" }
+        }
+      }
+    },
+    "recommendation": {
+      "type": ["object", "null"],
+      "properties": {
+        "id": { "type": "string" },
+        "goal": { "type": "string" },
+        "impact": { "type": "string" },
+        "confidence": { "type": "number" }
+      }
+    }
+  }
+}

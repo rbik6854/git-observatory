@@ -1,0 +1,47 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "agent:check",
+      "type": "shell",
+      "command": "npm run agents:check",
+      "problemMatcher": []
+    },
+    {
+      "label": "agent:normalize-local-task",
+      "type": "shell",
+      "command": "npm run agents:normalize -- --input ${input:agentTaskFile}",
+      "problemMatcher": []
+    },
+    {
+      "label": "agent:create-task-packet",
+      "type": "shell",
+      "command": "npm run agents:packet -- --task ${input:readyTaskFile}",
+      "problemMatcher": []
+    },
+    {
+      "label": "build",
+      "type": "shell",
+      "command": "npm run build",
+      "problemMatcher": []
+    },
+    {
+      "label": "test",
+      "type": "shell",
+      "command": "npm test",
+      "problemMatcher": []
+    }
+  ],
+  "inputs": [
+    {
+      "id": "agentTaskFile",
+      "type": "promptString",
+      "description": "Path to the local task JSON to normalize"
+    },
+    {
+      "id": "readyTaskFile",
+      "type": "promptString",
+      "description": "Path to the normalized task JSON to packetize"
+    }
+  ]
+}

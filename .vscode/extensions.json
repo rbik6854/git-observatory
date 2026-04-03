@@ -1,0 +1,6 @@
+{
+  "recommendations": [
+    "ms-playwright.playwright",
+    "github.vscode-github-actions"
+  ]
+}
