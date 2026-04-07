@@ -839,3 +839,7 @@ export function createEmptyWorkspace(repoPath: string): LessonWorkspace {
     modifiedAt: new Date().toISOString()
   };
 }
+export * from "./curriculum";
+export * from "./workflows";
+export * from "./github-model";
+

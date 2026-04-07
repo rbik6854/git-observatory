@@ -1,8 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   ParsedGitCommand,
   RepoStateSnapshot,
   createEmptySnapshot
+} from "@git-observatory/core-domain";
+import type {
+  CurriculumConcept,
+  GitHubTeachingTopic,
+  WorkflowScenario
 } from "@git-observatory/core-domain";
 import {
   buildHistoryTimeline,
@@ -17,6 +22,57 @@ import {
   projectGraph,
   projectGraphIncremental
 } from "./index";
+
+describe("core domain exports", () => {
+  it("exports curriculum and workflow contracts", () => {
+    const curriculumConcept = {
+      id: "repository-birth",
+      title: "Repository birth and Git metadata",
+      guidedChapterIds: ["chapter-1-repository-birth"],
+      practiceScenarioIds: ["step-init-repository"],
+      githubBridgeTopics: ["pull-request-mental-model"]
+    } satisfies CurriculumConcept;
+
+    const workflowScenario = {
+      id: "feature-branch-rebase-release",
+      title: "Feature branch rebase release",
+      realism: {
+        largeRepoFaithful: true,
+        simplifiedTeachingNotes: ["Use a compact repo to explain the same state transitions."]
+      },
+      githubBridgeTopics: ["branch-protection", "merge-strategy-outcomes"]
+    } satisfies WorkflowScenario;
+
+    const githubTopic = "review-feedback-loop" satisfies GitHubTeachingTopic;
+
+    expectTypeOf<CurriculumConcept>().toEqualTypeOf<{
+      id: string;
+      title: string;
+      guidedChapterIds: string[];
+      practiceScenarioIds: string[];
+      githubBridgeTopics: string[];
+    }>();
+    expectTypeOf<WorkflowScenario>().toEqualTypeOf<{
+      id: string;
+      title: string;
+      realism: {
+        largeRepoFaithful: boolean;
+        simplifiedTeachingNotes: string[];
+      };
+      githubBridgeTopics: GitHubTeachingTopic[];
+    }>();
+    expectTypeOf<GitHubTeachingTopic>().toEqualTypeOf<
+      | "pull-request-mental-model"
+      | "branch-protection"
+      | "merge-strategy-outcomes"
+      | "review-feedback-loop"
+    >();
+
+    expect(curriculumConcept.guidedChapterIds).toContain("chapter-1-repository-birth");
+    expect(workflowScenario.realism.largeRepoFaithful).toBe(true);
+    expect(githubTopic).toBe("review-feedback-loop");
+  });
+});
 
 function command(subcommand: string): ParsedGitCommand {
   return {
@@ -172,6 +228,20 @@ describe("projectGraph", () => {
     expect(stagedBlob?.type).toBe("blob");
     expect(stagedBlob?.metadata.staged).toBe(true);
     expect(stagedBlob?.metadata.stagedOnly).toBe(true);
+  });
+
+  it("shows an unborn branch ref after git init before the first commit exists", () => {
+    const snapshot: RepoStateSnapshot = {
+      ...createEmptySnapshot("C:/repo"),
+      head: { detached: false, target: "refs/heads/main", oid: null },
+      refs: [],
+      commitGraph: []
+    };
+
+    const graph = projectGraph({ snapshot });
+
+    expect(graph.nodes.some((node) => node.id === "ref:refs/heads/main")).toBe(true);
+    expect(graph.edges.some((edge) => edge.id === "symbolic:head:ref:refs/heads/main")).toBe(true);
   });
 
   it("surfaces additional staged paths when a staged blob reuses an existing blob object", () => {
