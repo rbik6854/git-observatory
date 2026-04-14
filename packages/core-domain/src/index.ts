@@ -60,7 +60,7 @@ export type LessonValidationRule =
 export type GuidedActionKind = "git-command" | "workspace-file-create" | "workspace-file-edit" | "info";
 export type LessonChapterStatus = "interactive" | "planned";
 export type LessonWorkspaceFileStatus = "untracked" | "tracked" | "staged" | "committed";
-export type SandboxKind = "learning" | "practice";
+export type SandboxKind = "learning" | "practice" | "auto-drive";
 
 export interface ParsedGitCommand {
   raw: string;
@@ -499,6 +499,54 @@ export interface TransitionJournal {
 
 export type RepoSliceName = "history" | "changes" | "tree" | "workspace" | "remote" | "timeline";
 
+export type StoryPlaybackStatus = "idle" | "playing" | "paused" | "finished";
+export type StoryStepKind = "git-command" | "file-write";
+
+export interface StorySceneStep {
+  id: string;
+  kind: StoryStepKind;
+  command?: string;
+  path?: string;
+  content?: string;
+  description: string;
+  expectedInvalidationSlices: RepoSliceName[];
+  allowFailure?: boolean;
+}
+
+export type StoryEmphasisTarget = RepoSliceName | "graph";
+
+export interface StoryScene {
+  id: string;
+  title: string;
+  caption: string;
+  explanation: string;
+  setupSteps?: StorySceneStep[];
+  steps: StorySceneStep[];
+  expectedInvalidationSlices: RepoSliceName[];
+  emphasisTargets: StoryEmphasisTarget[];
+  pauseAfter?: boolean;
+}
+
+export interface StoryScript {
+  id: string;
+  title: string;
+  summary: string;
+  scenes: StoryScene[];
+}
+
+export interface StorySessionState {
+  selectedStoryId: string;
+  sceneIndex: number;
+  stepIndex: number;
+  playbackStatus: StoryPlaybackStatus;
+  activeCommand: string | null;
+  currentSceneTitle: string;
+  currentCaption: string;
+  currentExplanation: string;
+  lastCommand: string | null;
+  lastDeltaSummary: string[];
+}
+
 export interface RepoInvalidation {
   slices: RepoSliceName[];
   reason: string;
@@ -640,6 +688,7 @@ export interface SandboxDescriptor {
   kind: SandboxKind;
   createdAt: string;
   sessionId: string;
+  cleanupPaths?: string[];
 }
 
 export interface SandboxCreationResult {
@@ -839,7 +888,7 @@ export function createEmptyWorkspace(repoPath: string): LessonWorkspace {
     modifiedAt: new Date().toISOString()
   };
 }
+
 export * from "./curriculum";
 export * from "./workflows";
 export * from "./github-model";
-

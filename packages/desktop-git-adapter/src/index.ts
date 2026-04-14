@@ -519,6 +519,33 @@ export class LocalGitExecutionAdapter implements GitExecutionAdapter {
 
   async createSandbox(kind: SandboxKind, rootPath: string, sessionId: string, name = "git-observatory"): Promise<SandboxCreationResult> {
     await fs.mkdir(rootPath, { recursive: true });
+    if (kind === "auto-drive") {
+      const storyRoot = await fs.mkdtemp(path.join(rootPath, `${name}-`));
+      const repoPath = path.join(storyRoot, "workspace");
+      const remotePath = path.join(storyRoot, "origin.git");
+
+      await fs.mkdir(repoPath, { recursive: true });
+      const remoteInit = await runGit(["init", "--bare", remotePath], storyRoot);
+      if (remoteInit.exitCode !== 0) {
+        throw new Error(remoteInit.stderr || "Failed to create the auto-drive story remote.");
+      }
+
+      const snapshot = createEmptySnapshot(repoPath, [
+        "Auto-drive sandbox created. The story will initialize Git in the workspace and publish to the disposable local origin."
+      ]);
+      return {
+        repoPath,
+        snapshot,
+        sandbox: {
+          repoPath,
+          kind,
+          createdAt: new Date().toISOString(),
+          sessionId,
+          cleanupPaths: [storyRoot]
+        }
+      };
+    }
+
     const repoPath = await fs.mkdtemp(path.join(rootPath, `${name}-`));
     const snapshot = createEmptySnapshot(repoPath, ["Sandbox created. Run git init to begin observing Git internals."]);
     return {

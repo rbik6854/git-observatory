@@ -47,6 +47,20 @@ describe("LocalGitExecutionAdapter.createSandbox", () => {
     expect(result.repoPath.startsWith(root)).toBe(true);
     await expect(fs.access(result.repoPath)).resolves.toBeUndefined();
   });
+
+  it("creates an auto-drive sandbox with a disposable origin and workspace root", async () => {
+    const adapter = new LocalGitExecutionAdapter();
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "git-observatory-story-test-"));
+    cleanupTargets.push(root);
+
+    const result = await adapter.createSandbox("auto-drive", root, "session-456", "story");
+    const storyRoot = path.dirname(result.repoPath);
+
+    expect(result.sandbox.kind).toBe("auto-drive");
+    expect(result.sandbox.cleanupPaths).toEqual([storyRoot]);
+    await expect(fs.access(result.repoPath)).resolves.toBeUndefined();
+    await expect(fs.access(path.join(storyRoot, "origin.git"))).resolves.toBeUndefined();
+  });
 });
 
 describe("large repo and lazy workspace handling", () => {
