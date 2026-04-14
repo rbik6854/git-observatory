@@ -58,20 +58,20 @@ export function EmptyState(props: { message: string; action?: ReactNode }) {
   );
 }
 
-function nodeSize(type: GraphViewModel["nodes"][number]["type"]) {
+function nodeDimensions(type: GraphViewModel["nodes"][number]["type"]) {
   switch (type) {
     case "head":
-      return 72;
+      return { width: 70, height: 34 };
     case "ref":
-      return 84;
+      return { width: 96, height: 34 };
     case "commit":
-      return 110;
+      return { width: 118, height: 78 };
     case "tree":
-      return 84;
+      return { width: 86, height: 64 };
     case "blob":
-      return 88;
+      return { width: 90, height: 64 };
     default:
-      return 88;
+      return { width: 90, height: 64 };
   }
 }
 
@@ -116,7 +116,7 @@ function edgeLabel(relationship: GraphViewModel["edges"][number]["relationship"]
 }
 
 function shouldRenderEdgeLabel(relationship: GraphViewModel["edges"][number]["relationship"]): boolean {
-  return relationship !== "contains";
+  return false;
 }
 
 export function GraphCanvas(props: {
@@ -136,8 +136,8 @@ export function GraphCanvas(props: {
     );
   }
 
-  const width = Math.max(...graph.nodes.map((node) => node.position.x + nodeSize(node.type) + 120), 880);
-  const height = Math.max(...graph.nodes.map((node) => node.position.y + nodeSize(node.type) + 120), 560);
+  const width = Math.max(...graph.nodes.map((node) => node.position.x + nodeDimensions(node.type).width + 120), 880);
+  const height = Math.max(...graph.nodes.map((node) => node.position.y + nodeDimensions(node.type).height + 120), 560);
   const nodeMap = new Map(graph.nodes.map((node) => [node.id, node]));
   const visibleTypes = new Set(graph.nodes.map((node) => node.type));
 
@@ -171,12 +171,12 @@ export function GraphCanvas(props: {
                 return null;
               }
 
-              const sourceRadius = nodeSize(source.type) / 2;
-              const targetRadius = nodeSize(target.type) / 2;
-              const x1 = source.position.x + sourceRadius;
-              const y1 = source.position.y + sourceRadius;
-              const x2 = target.position.x + targetRadius;
-              const y2 = target.position.y + targetRadius;
+              const sourceDimensions = nodeDimensions(source.type);
+              const targetDimensions = nodeDimensions(target.type);
+              const x1 = source.position.x + sourceDimensions.width / 2;
+              const y1 = source.position.y + sourceDimensions.height / 2;
+              const x2 = target.position.x + targetDimensions.width / 2;
+              const y2 = target.position.y + targetDimensions.height / 2;
 
               return (
                 <g key={edge.id}>
@@ -202,7 +202,7 @@ export function GraphCanvas(props: {
           </svg>
 
           {graph.nodes.map((node) => {
-            const size = nodeSize(node.type);
+            const dimensions = nodeDimensions(node.type);
             const selection: GraphSelection = { kind: "node", id: node.id };
             const selected = selectionMatches(graph.selection, selection);
 
@@ -212,8 +212,8 @@ export function GraphCanvas(props: {
                 key={node.id}
                 onClick={() => props.onSelectNode(selection)}
                 style={{
-                  width: size,
-                  height: size,
+                  width: dimensions.width,
+                  height: dimensions.height,
                   left: node.position.x,
                   top: node.position.y
                 }}

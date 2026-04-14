@@ -430,6 +430,14 @@ function blobNodeId(oid: string): string {
   return `blob:${oid}`;
 }
 
+const HISTORY_START_X = 430;
+const HISTORY_START_Y = 120;
+const HISTORY_LANE_WIDTH = 170;
+const HISTORY_ROW_HEIGHT = 126;
+const REF_LABEL_Y_OFFSET = -50;
+const OBJECT_COLUMN_GAP = 300;
+const OBJECT_CHILD_COLUMN_GAP = 260;
+
 function assignCommitLanes(snapshot: RepoStateSnapshot): Map<string, number> {
   const commitsByOid = toMap(snapshot.commitGraph, (commit) => commit.oid);
   const lanes = new Map<string, number>();
@@ -474,23 +482,6 @@ function assignCommitLanes(snapshot: RepoStateSnapshot): Map<string, number> {
   return lanes;
 }
 
-function nodeDiameter(type: GraphViewModel["nodes"][number]["type"]): number {
-  switch (type) {
-    case "head":
-      return 72;
-    case "ref":
-      return 84;
-    case "commit":
-      return 110;
-    case "tree":
-      return 84;
-    case "blob":
-      return 88;
-    default:
-      return 88;
-  }
-}
-
 function updateBlobNodePresentation(node: GraphViewModel["nodes"][number]) {
   const paths = Array.isArray(node.metadata.paths) ? node.metadata.paths.filter((item): item is string => typeof item === "string") : [];
   const primaryPath = paths[0] ?? (typeof node.metadata.path === "string" ? node.metadata.path : node.label);
@@ -532,44 +523,6 @@ function resolveBlobCollisions(nodes: GraphViewModel["nodes"]) {
   });
 }
 
-function resolveNodeCollisions(nodes: GraphViewModel["nodes"]) {
-  const sorted = nodes
-    .slice()
-    .sort((left, right) => {
-      if (left.position.x !== right.position.x) {
-        return left.position.x - right.position.x;
-      }
-      return left.position.y - right.position.y;
-    });
-
-  const placed: Array<{ x: number; y: number; radius: number }> = [];
-
-  sorted.forEach((node) => {
-    let x = node.position.x;
-    let y = node.position.y;
-    const radius = nodeDiameter(node.type) / 2;
-    let attempts = 0;
-
-    while (
-      placed.some((candidate) => {
-        const minX = radius + candidate.radius + 28;
-        const minY = radius + candidate.radius + 26;
-        return Math.abs(candidate.x - x) < minX && Math.abs(candidate.y - y) < minY;
-      }) &&
-      attempts < 18
-    ) {
-      attempts += 1;
-      y += Math.max(90, radius + 24);
-      if (attempts % 4 === 0) {
-        x += 72;
-      }
-    }
-
-    node.position = { x, y };
-    placed.push({ x, y, radius });
-  });
-}
-
 function buildTreeLayout(
   treeOid: string,
   parentNodeId: string,
@@ -594,7 +547,7 @@ function buildTreeLayout(
     return;
   }
 
-  const offsetX = parentX + 280;
+  const offsetX = parentX + OBJECT_CHILD_COLUMN_GAP;
   const baseY = parentY - ((tree.entries.length - 1) * 54) / 2;
 
   tree.entries.forEach((entry, index) => {
@@ -754,8 +707,8 @@ function buildGraphStructure(params: {
 
   snapshot.commitGraph.forEach((commit, index) => {
     const id = `commit:${commit.oid}`;
-    const x = 470 + (commitLanes.get(commit.oid) ?? 0) * 150;
-    const y = 110 + index * 118;
+    const x = HISTORY_START_X + (commitLanes.get(commit.oid) ?? 0) * HISTORY_LANE_WIDTH;
+    const y = HISTORY_START_Y + index * HISTORY_ROW_HEIGHT;
     commitY.set(commit.oid, y);
     commitX.set(commit.oid, x);
     nodes.push({
@@ -804,9 +757,9 @@ function buildGraphStructure(params: {
   visibleRefs.forEach((ref, index) => {
     const siblings = refGroups.get(ref.oid || ref.name) ?? [ref];
     const siblingIndex = siblings.findIndex((candidate) => candidate.name === ref.name);
-    const targetY = ref.oid ? (commitY.get(ref.oid) ?? 110 + index * 88) : 110 + index * 88;
-    const targetX = ref.oid ? (commitX.get(ref.oid) ?? 470) : 470;
-    const offset = (siblingIndex - (siblings.length - 1) / 2) * 96;
+    const targetY = ref.oid ? (commitY.get(ref.oid) ?? HISTORY_START_Y + index * 88) : HISTORY_START_Y + index * 88;
+    const targetX = ref.oid ? (commitX.get(ref.oid) ?? HISTORY_START_X) : HISTORY_START_X;
+    const offset = (siblingIndex - (siblings.length - 1) / 2) * 42;
     const id = `ref:${ref.name}`;
     nodes.push({
       id,
@@ -814,7 +767,7 @@ function buildGraphStructure(params: {
       label: shortRefName(ref.name),
       oid: ref.oid,
       target: ref.name,
-      position: { x: Math.max(180, targetX - 250), y: targetY + offset },
+      position: { x: targetX, y: Math.max(24, targetY + REF_LABEL_Y_OFFSET + offset) },
       metadata: {
         name: ref.name,
         scope: ref.scope,
@@ -827,11 +780,17 @@ function buildGraphStructure(params: {
   });
 
   const symbolicHeadRef = snapshot.head.target ? visibleRefs.find((ref) => ref.name === snapshot.head.target) : null;
+  const symbolicHeadNode = symbolicHeadRef ? nodes.find((node) => node.id === `ref:${symbolicHeadRef.name}`) : null;
   const headY = snapshot.head.oid
     ? (commitY.get(snapshot.head.oid) ?? 110)
     : symbolicHeadRef
-      ? nodes.find((node) => node.id === `ref:${symbolicHeadRef.name}`)?.position.y ?? 110
+      ? symbolicHeadNode?.position.y ?? 110
       : 110;
+  const headX = symbolicHeadNode
+    ? symbolicHeadNode.position.x - 80
+    : snapshot.head.oid && nodeIdsByOid.has(snapshot.head.oid)
+      ? (commitX.get(snapshot.head.oid) ?? HISTORY_START_X) - 90
+      : 80;
 
   nodes.push({
     id: "head",
@@ -839,7 +798,7 @@ function buildGraphStructure(params: {
     label: "HEAD",
     oid: snapshot.head.oid,
     target: snapshot.head.target,
-    position: { x: 80, y: headY },
+    position: { x: Math.max(40, headX), y: symbolicHeadNode ? symbolicHeadNode.position.y : headY },
     metadata: {
       detached: snapshot.head.detached,
       target: snapshot.head.target,
@@ -850,20 +809,20 @@ function buildGraphStructure(params: {
 
   if (visibilityFilters.showTrees) {
     const seenTrees = new Set<string>();
+    const objectColumnX = Math.max(...Array.from(commitX.values()), HISTORY_START_X) + OBJECT_COLUMN_GAP;
     snapshot.commitGraph.forEach((commit, index) => {
       if (!commit.treeOid || seenTrees.has(commit.treeOid)) {
         return;
       }
       seenTrees.add(commit.treeOid);
       const id = `tree:${commit.treeOid}`;
-      const x = (commitX.get(commit.oid) ?? 470) + 300;
       nodes.push({
         id,
         type: "tree",
         label: `TREE ${truncate(commit.treeOid, 8)}`,
         oid: commit.treeOid,
         target: null,
-        position: { x, y: 110 + index * 118 },
+        position: { x: objectColumnX, y: HISTORY_START_Y + index * HISTORY_ROW_HEIGHT },
         metadata: {
           oid: commit.treeOid,
           commitOid: commit.oid
@@ -954,7 +913,7 @@ function buildGraphStructure(params: {
           label: basename(entry.path),
           oid: entry.oid,
           target: null,
-          position: { x: 1060, y: 90 + index * 108 },
+          position: { x: Math.max(...Array.from(commitX.values()), HISTORY_START_X) + OBJECT_COLUMN_GAP + OBJECT_CHILD_COLUMN_GAP, y: HISTORY_START_Y + index * 108 },
           metadata: {
             oid: entry.oid,
             path: entry.path,
@@ -987,7 +946,6 @@ function buildGraphStructure(params: {
   }
 
   resolveBlobCollisions(nodes);
-  resolveNodeCollisions(nodes);
 
   return { nodes, edges };
 }

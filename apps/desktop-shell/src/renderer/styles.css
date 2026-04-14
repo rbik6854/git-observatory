@@ -318,22 +318,24 @@ button:disabled {
 
 .go-graph-edge {
   stroke: rgba(255, 255, 255, 0.74);
-  stroke-width: 3;
+  stroke-width: 2.5;
   stroke-linecap: round;
 }
 
 .go-graph-edge--parent {
   stroke: var(--red);
-  stroke-dasharray: 8 6;
+  stroke-width: 4;
 }
 
 .go-graph-edge--contains {
   stroke: var(--accent);
-  stroke-width: 2.5;
+  stroke-width: 1.6;
+  opacity: 0.62;
 }
 
 .go-graph-edge--symbolic {
   stroke: var(--yellow);
+  stroke-width: 2;
 }
 
 .go-graph-edge.is-new,
@@ -359,9 +361,9 @@ button:disabled {
   place-items: center;
   align-content: center;
   gap: 0.12rem;
-  padding: 0.5rem;
+  padding: 0.35rem;
   border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 50%;
+  border-radius: 8px;
   color: white;
   font-weight: 700;
   text-align: center;
@@ -377,7 +379,7 @@ button:disabled {
 
 .go-node strong,
 .go-node code {
-  max-width: 86%;
+  max-width: 94%;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -401,14 +403,17 @@ button:disabled {
 
 .go-node--commit {
   background: #b83d36;
+  box-shadow: 0 0 0 2px rgba(184, 61, 54, 0.14);
 }
 
 .go-node--tree {
   background: #347a46;
+  opacity: 0.9;
 }
 
 .go-node--blob {
   background: #4168c7;
+  opacity: 0.9;
 }
 
 .go-node__type {

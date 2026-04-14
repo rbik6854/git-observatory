@@ -640,6 +640,7 @@ export interface SandboxDescriptor {
   kind: SandboxKind;
   createdAt: string;
   sessionId: string;
+  cleanupPaths?: string[];
 }
 
 export interface SandboxCreationResult {
