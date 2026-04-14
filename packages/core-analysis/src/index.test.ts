@@ -231,6 +231,33 @@ describe("projectGraph", () => {
     expect(stagedBlob?.metadata.stagedOnly).toBe(true);
   });
 
+  it("keeps many standalone staged blobs out of the graph surface", () => {
+    const snapshot: RepoStateSnapshot = {
+      ...createEmptySnapshot("C:/repo"),
+      workingTree: [
+        { path: "one.txt", indexStatus: "A", workTreeStatus: " " },
+        { path: "two.txt", indexStatus: "A", workTreeStatus: " " },
+        { path: "three.txt", indexStatus: "A", workTreeStatus: " " },
+        { path: "four.txt", indexStatus: "A", workTreeStatus: " " },
+        { path: "five.txt", indexStatus: "A", workTreeStatus: " " }
+      ],
+      index: [
+        { mode: "100644", oid: "blob-one", stage: 0, path: "one.txt" },
+        { mode: "100644", oid: "blob-two", stage: 0, path: "two.txt" },
+        { mode: "100644", oid: "blob-three", stage: 0, path: "three.txt" },
+        { mode: "100644", oid: "blob-four", stage: 0, path: "four.txt" },
+        { mode: "100644", oid: "blob-five", stage: 0, path: "five.txt" }
+      ],
+      head: { detached: false, target: null, oid: null },
+      commitGraph: []
+    };
+
+    const graph = projectGraph({ snapshot });
+
+    expect(graph.nodes.filter((node) => node.type === "blob")).toHaveLength(0);
+    expect(graph.stagingArea).toHaveLength(5);
+  });
+
   it("does not mark clean tracked index entries as staged blobs", () => {
     const snapshot: RepoStateSnapshot = {
       ...createEmptySnapshot("C:/repo"),

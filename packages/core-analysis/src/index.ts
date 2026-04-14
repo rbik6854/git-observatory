@@ -469,6 +469,7 @@ const REF_LABEL_Y_OFFSET = 22;
 const OBJECT_COLUMN_GAP = 300;
 const OBJECT_CHILD_COLUMN_GAP = 260;
 const INLINE_TREE_ENTRY_LIMIT = 4;
+const INLINE_STAGED_BLOB_LIMIT = 4;
 
 function formatTreeEntrySummary(entries: Extract<GitObjectInspection, { type: "tree" }>["entries"]): {
   label: string;
@@ -978,12 +979,23 @@ function buildGraphStructure(params: {
   }
 
   if (visibilityFilters.showBlobs && includeIndexBlobs) {
+    const standaloneStagedEntryKeys = new Set(
+      snapshot.index
+        .filter((entry) => isIndexEntryStaged(snapshot, entry.path, entry.stage))
+        .map((entry) => `${entry.path}:${entry.stage}`)
+    );
+    const showStandaloneStagedBlobs = standaloneStagedEntryKeys.size <= INLINE_STAGED_BLOB_LIMIT;
+
     snapshot.index.forEach((entry, index) => {
       const id = blobNodeId(entry.oid);
       const existingNode = nodes.find((node) => node.id === id);
       const staged = isIndexEntryStaged(snapshot, entry.path, entry.stage);
 
       if (!existingNode && !staged) {
+        return;
+      }
+
+      if (!existingNode && !showStandaloneStagedBlobs) {
         return;
       }
 
