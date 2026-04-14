@@ -8,7 +8,7 @@ import {
   RepoStateSnapshot,
   SandboxDescriptor
 } from "@git-observatory/core-domain";
-import { GraphCanvas } from "@git-observatory/ui-shared";
+import { GraphCanvas, StatusPanel } from "@git-observatory/ui-shared";
 
 const graphVisibility: GraphVisibilityFilters = {
   showRefs: true,
@@ -23,6 +23,22 @@ function formatTime(value: string | null): string {
 
 function isNodeSelection(selection: GraphSelection): selection is { kind: "node"; id: string } {
   return selection.kind === "node";
+}
+
+function isWorkingTreeVisible(item: NonNullable<ReturnType<typeof projectGraphIncremental>["graph"]>["workingArea"][number]): boolean {
+  return item.workTreeStatus.trim().length > 0 || item.indexStatus === "?";
+}
+
+function isIndexVisible(
+  item: NonNullable<ReturnType<typeof projectGraphIncremental>["graph"]>["stagingArea"][number],
+  workingArea: NonNullable<ReturnType<typeof projectGraphIncremental>["graph"]>["workingArea"]
+): boolean {
+  if (item.stage !== 0) {
+    return true;
+  }
+
+  const workingTreeEntry = workingArea.find((candidate) => candidate.path === item.path);
+  return Boolean(workingTreeEntry?.indexStatus.trim() && workingTreeEntry.indexStatus !== "?");
 }
 
 export default function App() {
@@ -60,6 +76,11 @@ export default function App() {
     cacheRef.current = result.cache;
     return result.graph;
   }, [selection, snapshot, treeInspections]);
+  const workingTreeItems = useMemo(() => graph?.workingArea.filter(isWorkingTreeVisible) ?? [], [graph]);
+  const indexItems = useMemo(
+    () => graph?.stagingArea.filter((item) => isIndexVisible(item, graph.workingArea)) ?? [],
+    [graph]
+  );
 
   const refreshSnapshot = useCallback(async (path = repoPath) => {
     if (!path) {
@@ -260,14 +281,38 @@ export default function App() {
 
       {error ? <p className="playground-error" role="alert">{error}</p> : null}
 
-      <section className="playground-canvas" aria-label="Git graph canvas">
-        <GraphCanvas
-          actions={<span className="playground-status">{sandbox?.kind ?? "practice"} / {formatTime(lastUpdated)}</span>}
-          graph={graph}
-          onSelectNode={(nextSelection) => void handleSelect(nextSelection)}
-          subtitle="Run Git commands in your terminal. This canvas updates from the repository state."
-          title="Git Graph"
-        />
+      <section className="playground-workspace" aria-label="Git playground workspace">
+        <div className="playground-canvas" aria-label="Git graph canvas">
+          <GraphCanvas
+            actions={<span className="playground-status">{sandbox?.kind ?? "practice"} / {formatTime(lastUpdated)}</span>}
+            graph={graph}
+            onSelectNode={(nextSelection) => void handleSelect(nextSelection)}
+            subtitle="Run Git commands in your terminal. This canvas updates from the repository state."
+            title="Git Graph"
+          />
+        </div>
+        <aside className="playground-state" aria-label="Local repository state">
+          <div className="playground-state-panel">
+            <StatusPanel
+              items={workingTreeItems}
+              kind="working"
+              onSelect={(nextSelection) => void handleSelect(nextSelection)}
+              selection={selection}
+              subtitle="Files changed on disk"
+              title="Working Tree"
+            />
+          </div>
+          <div className="playground-state-panel">
+            <StatusPanel
+              items={indexItems}
+              kind="staging"
+              onSelect={(nextSelection) => void handleSelect(nextSelection)}
+              selection={selection}
+              subtitle="Files staged for commit"
+              title="Index"
+            />
+          </div>
+        </aside>
       </section>
     </main>
   );

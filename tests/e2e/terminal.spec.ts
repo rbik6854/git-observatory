@@ -31,6 +31,8 @@ test("playground shell creates a repo without embedded terminal UI", async () =>
     await expect(page.getByRole("button", { name: "New Playground" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Reset Playground" })).toHaveCount(0);
     await expect(page.locator(".go-graph-scroll")).toBeVisible({ timeout: 30000 });
+    await expect(page.getByRole("heading", { name: "Working Tree" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Index" })).toBeVisible();
     await expect(page.locator(`.go-${"terminal"}-host`)).toHaveCount(0);
     await expect(page.locator(".graph-terminal-drawer")).toHaveCount(0);
   } finally {
@@ -59,7 +61,17 @@ test("playground canvas expands committed tree contents after refresh", async ()
     execFileSync("git", ["config", "user.name", "Playground Test"], { cwd: repoPath });
     execFileSync("git", ["config", "user.email", "playground@example.test"], { cwd: repoPath });
     writeFileSync(path.join(repoPath, "test.txt"), "hello\n");
+    await page.getByRole("button", { name: "Refresh" }).click();
+
+    await expect(page.locator(".playground-state-panel").filter({ hasText: "Working Tree" })).toContainText("test.txt");
+    await expect(page.locator(".playground-state-panel").filter({ hasText: "Working Tree" })).toContainText("untracked");
+    await expect(page.locator(".playground-state-panel").filter({ hasText: "Index" })).toContainText("No staged paths");
+
     execFileSync("git", ["add", "test.txt"], { cwd: repoPath });
+    await page.getByRole("button", { name: "Refresh" }).click();
+
+    await expect(page.locator(".playground-state-panel").filter({ hasText: "Index" })).toContainText("test.txt");
+
     execFileSync("git", ["commit", "-m", "first commit"], { cwd: repoPath });
 
     await page.getByRole("button", { name: "Refresh" }).click();
