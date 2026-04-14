@@ -434,7 +434,8 @@ const HISTORY_START_X = 430;
 const HISTORY_START_Y = 120;
 const HISTORY_LANE_WIDTH = 170;
 const HISTORY_ROW_HEIGHT = 126;
-const REF_LABEL_Y_OFFSET = -50;
+const REF_LABEL_X_OFFSET = -128;
+const REF_LABEL_Y_OFFSET = 22;
 const OBJECT_COLUMN_GAP = 300;
 const OBJECT_CHILD_COLUMN_GAP = 260;
 
@@ -767,7 +768,7 @@ function buildGraphStructure(params: {
       label: shortRefName(ref.name),
       oid: ref.oid,
       target: ref.name,
-      position: { x: targetX, y: Math.max(24, targetY + REF_LABEL_Y_OFFSET + offset) },
+      position: { x: Math.max(40, targetX + REF_LABEL_X_OFFSET), y: Math.max(24, targetY + REF_LABEL_Y_OFFSET + offset) },
       metadata: {
         name: ref.name,
         scope: ref.scope,
@@ -809,9 +810,10 @@ function buildGraphStructure(params: {
 
   if (visibilityFilters.showTrees) {
     const seenTrees = new Set<string>();
+    const objectFocusCommitOid = snapshot.head.oid ?? snapshot.commitGraph[0]?.oid ?? null;
     const objectColumnX = Math.max(...Array.from(commitX.values()), HISTORY_START_X) + OBJECT_COLUMN_GAP;
     snapshot.commitGraph.forEach((commit, index) => {
-      if (!commit.treeOid || seenTrees.has(commit.treeOid)) {
+      if (!commit.treeOid || commit.oid !== objectFocusCommitOid || seenTrees.has(commit.treeOid)) {
         return;
       }
       seenTrees.add(commit.treeOid);
