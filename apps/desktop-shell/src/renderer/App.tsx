@@ -255,7 +255,7 @@ export default function App() {
       <main className="playground-app playground-app--empty">
         <section className="playground-launcher" aria-labelledby="playground-title">
           <p className="playground-kicker">Visual Git state</p>
-          <h1 id="playground-title">Git Playground</h1>
+          <h1 id="playground-title">Git Observatory</h1>
           <button className="playground-primary" disabled={busy} onClick={() => void createPlayground()} type="button">
             {busy ? "Creating..." : "New Playground"}
           </button>
@@ -269,8 +269,8 @@ export default function App() {
     <main className="playground-app">
       <header className="playground-topbar">
         <div className="playground-title">
-          <p className="playground-kicker">Git Playground</p>
-          <h1>Git Playground</h1>
+          <p className="playground-kicker">Git Observatory</p>
+          <h1>Git Observatory</h1>
         </div>
         <div className="playground-path" title={repoPath}>
           {repoPath}

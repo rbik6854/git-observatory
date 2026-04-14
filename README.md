@@ -1,6 +1,6 @@
-# Git Internals Observatory
+# Git Observatory
 
-Desktop-first Git observability workspace with web-ready package boundaries.
+Desktop-first visual companion for observing Git commits, refs, trees, the index, and working tree state.
 
 ## Packages
 

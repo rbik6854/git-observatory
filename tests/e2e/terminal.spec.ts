@@ -18,14 +18,14 @@ test("playground shell creates a repo without embedded terminal UI", async () =>
   try {
     const page = await electronApp.firstWindow();
 
-    await expect(page.getByRole("heading", { name: "Git Playground" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Git Observatory" })).toBeVisible();
     await expect(page.getByRole("button", { name: "New Playground" })).toBeVisible();
     await expect(page.getByRole("button", { name: new RegExp(`Open ${"Repo"}`, "i") })).toHaveCount(0);
     await expect(page.getByText(/terminal/i)).toHaveCount(0);
 
     await page.getByRole("button", { name: "New Playground" }).click();
 
-    await expect(page.getByRole("heading", { name: "Git Playground" })).toBeVisible({ timeout: 30000 });
+    await expect(page.getByRole("heading", { name: "Git Observatory" })).toBeVisible({ timeout: 30000 });
     await expect(page.getByRole("button", { name: "Open System Terminal" })).toBeVisible({ timeout: 30000 });
     await expect(page.getByRole("button", { name: "Refresh" })).toBeVisible();
     await expect(page.getByRole("button", { name: "New Playground" })).toBeVisible();

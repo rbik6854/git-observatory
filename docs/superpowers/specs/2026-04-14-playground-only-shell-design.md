@@ -27,7 +27,7 @@ The user can create a playground repository, run Git commands outside the app, a
 
 The app opens to a minimal launcher with:
 
-- product title: `Git Playground`
+- product title: `Git Observatory`
 - primary action: `New Playground`
 
 No repo picker, lesson picker, story picker, mode tabs, explanatory cards, or secondary onboarding content should appear.
