@@ -430,6 +430,36 @@ function blobNodeId(oid: string): string {
   return `blob:${oid}`;
 }
 
+function buildStagingArea(snapshot: RepoStateSnapshot, delta: StateDelta | null): GraphViewModel["stagingArea"] {
+  const stagedPaths = new Set<string>();
+  const stagedEntries = snapshot.index.map((entry) => {
+    stagedPaths.add(`${entry.path}:${entry.stage}`);
+    return {
+      id: `staging:${entry.path}:${entry.stage}`,
+      path: entry.path,
+      oid: entry.oid,
+      mode: entry.mode,
+      stage: entry.stage,
+      indexStatus: snapshot.workingTree.find((file) => file.path === entry.path)?.indexStatus ?? "",
+      emphasis: delta?.indexChanged.includes(`${entry.path}:${entry.stage}`) ? "changed" as const : "default" as const
+    };
+  });
+
+  const stagedDeletes = snapshot.workingTree
+    .filter((file) => file.indexStatus === "D" && !stagedPaths.has(`${file.path}:0`))
+    .map((file) => ({
+      id: `staging:${file.path}:0`,
+      path: file.path,
+      oid: "",
+      mode: "",
+      stage: 0,
+      indexStatus: file.indexStatus,
+      emphasis: delta?.workingTreeChanged.includes(file.path) ? "changed" as const : "default" as const
+    }));
+
+  return [...stagedEntries, ...stagedDeletes];
+}
+
 const HISTORY_START_X = 430;
 const HISTORY_START_Y = 120;
 const HISTORY_LANE_WIDTH = 170;
@@ -438,6 +468,32 @@ const REF_LABEL_X_OFFSET = -128;
 const REF_LABEL_Y_OFFSET = 22;
 const OBJECT_COLUMN_GAP = 300;
 const OBJECT_CHILD_COLUMN_GAP = 260;
+const INLINE_TREE_ENTRY_LIMIT = 4;
+const INLINE_STAGED_BLOB_LIMIT = 4;
+
+function formatTreeEntrySummary(entries: Extract<GitObjectInspection, { type: "tree" }>["entries"]): {
+  label: string;
+  fileCount: number;
+  directoryCount: number;
+} {
+  const fileCount = entries.filter((entry) => entry.type === "blob").length;
+  const directoryCount = entries.filter((entry) => entry.type === "tree").length;
+  const parts: string[] = [];
+
+  if (fileCount > 0) {
+    parts.push(`${fileCount} ${fileCount === 1 ? "file" : "files"}`);
+  }
+
+  if (directoryCount > 0) {
+    parts.push(`${directoryCount} ${directoryCount === 1 ? "dir" : "dirs"}`);
+  }
+
+  return {
+    label: parts.length > 0 ? parts.join(" ") : "empty",
+    fileCount,
+    directoryCount
+  };
+}
 
 function assignCommitLanes(snapshot: RepoStateSnapshot): Map<string, number> {
   const commitsByOid = toMap(snapshot.commitGraph, (commit) => commit.oid);
@@ -546,6 +602,26 @@ function buildTreeLayout(
   const tree = treeInspections[treeOid];
   if (!tree || tree.type !== "tree") {
     return;
+  }
+
+  const parentNode = nodes.find((node) => node.id === parentNodeId);
+  const summary = formatTreeEntrySummary(tree.entries);
+  if (parentNode) {
+    parentNode.metadata.treeEntryCount = tree.entries.length;
+    parentNode.metadata.treeFileCount = summary.fileCount;
+    parentNode.metadata.treeDirectoryCount = summary.directoryCount;
+  }
+
+  if (tree.entries.length > INLINE_TREE_ENTRY_LIMIT) {
+    if (parentNode) {
+      parentNode.label = summary.label;
+      parentNode.metadata.treeContentsCollapsed = true;
+    }
+    return;
+  }
+
+  if (parentNode) {
+    parentNode.metadata.treeContentsCollapsed = false;
   }
 
   const offsetX = parentX + OBJECT_CHILD_COLUMN_GAP;
@@ -903,10 +979,25 @@ function buildGraphStructure(params: {
   }
 
   if (visibilityFilters.showBlobs && includeIndexBlobs) {
+    const standaloneStagedEntryKeys = new Set(
+      snapshot.index
+        .filter((entry) => isIndexEntryStaged(snapshot, entry.path, entry.stage))
+        .map((entry) => `${entry.path}:${entry.stage}`)
+    );
+    const showStandaloneStagedBlobs = standaloneStagedEntryKeys.size <= INLINE_STAGED_BLOB_LIMIT;
+
     snapshot.index.forEach((entry, index) => {
       const id = blobNodeId(entry.oid);
       const existingNode = nodes.find((node) => node.id === id);
       const staged = isIndexEntryStaged(snapshot, entry.path, entry.stage);
+
+      if (!existingNode && !staged) {
+        return;
+      }
+
+      if (!existingNode && !showStandaloneStagedBlobs) {
+        return;
+      }
 
       if (!existingNode) {
         nodes.push({
@@ -1000,14 +1091,7 @@ export function projectGraphIncremental(params: {
         workTreeStatus: file.workTreeStatus,
         emphasis: delta?.workingTreeChanged.includes(file.path) ? "changed" : "default"
       })),
-      stagingArea: snapshot.index.map((entry) => ({
-        id: `staging:${entry.path}:${entry.stage}`,
-        path: entry.path,
-        oid: entry.oid,
-        mode: entry.mode,
-        stage: entry.stage,
-        emphasis: delta?.indexChanged.includes(`${entry.path}:${entry.stage}`) ? "changed" : "default"
-      })),
+      stagingArea: buildStagingArea(snapshot, delta),
       selection,
       visibilityFilters
     },
@@ -1119,14 +1203,7 @@ export function projectChangePipeline(params: {
       workTreeStatus: file.workTreeStatus,
       emphasis: delta?.workingTreeChanged.includes(file.path) ? "changed" : "default"
     })),
-    stagingArea: snapshot.index.map((entry) => ({
-      id: `staging:${entry.path}:${entry.stage}`,
-      path: entry.path,
-      oid: entry.oid,
-      mode: entry.mode,
-      stage: entry.stage,
-      emphasis: delta?.indexChanged.includes(`${entry.path}:${entry.stage}`) ? "changed" : "default"
-    })),
+    stagingArea: buildStagingArea(snapshot, delta),
     stagedBlobs: Array.from(stagedBlobMap.values()),
     summary
   };

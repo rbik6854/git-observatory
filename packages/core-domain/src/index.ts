@@ -250,6 +250,7 @@ export interface StagingAreaItem {
   oid: string;
   mode: string;
   stage: number;
+  indexStatus: string;
   emphasis?: "default" | "new" | "changed";
 }
 

@@ -169,13 +169,33 @@ button:disabled {
   color: #ffd4cf;
 }
 
-.playground-canvas {
+.playground-workspace {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
+  gap: 0.6rem;
+}
+
+.playground-canvas,
+.playground-state {
+  min-height: 0;
+  display: grid;
+}
+
+.playground-state {
+  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0.6rem;
+}
+
+.playground-state-panel {
   min-height: 0;
   display: grid;
 }
 
 .playground-canvas > .go-panel,
+.playground-state-panel > .go-panel,
 .playground-canvas > .go-panel > .go-panel__body,
+.playground-state-panel > .go-panel > .go-panel__body,
 .playground-canvas .go-graph-scroll {
   min-height: 0;
 }
@@ -225,8 +245,10 @@ button:disabled {
 .go-empty {
   display: grid;
   place-items: center;
-  min-height: 320px;
+  min-height: 100%;
+  padding: 1rem;
   color: var(--muted);
+  text-align: center;
 }
 
 .go-empty p {
@@ -304,6 +326,37 @@ button:disabled {
   height: 100%;
   overflow: auto;
   background: #111215;
+}
+
+.go-status-list {
+  max-height: min(100%, 15rem);
+  overflow: auto;
+  padding: 0.45rem;
+}
+
+.go-status-item {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.55rem;
+  margin-bottom: 0.35rem;
+  padding: 0.48rem 0.55rem;
+  background: #111215;
+  text-align: left;
+}
+
+.go-status-item span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.go-status-item strong,
+.go-status-item code {
+  color: var(--accent);
+  font-size: 0.72rem;
+  white-space: nowrap;
 }
 
 .go-graph-stage {
@@ -495,6 +548,84 @@ button:disabled {
   color: #d9ddd6;
 }
 
+.go-node__badge--collapsed {
+  color: #c9f7d2;
+}
+
+.go-tree-inspector {
+  display: grid;
+  min-height: 0;
+}
+
+.go-tree-inspector__summary {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.75rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.go-tree-inspector__counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.go-tree-inspector__counts strong {
+  padding: 0.18rem 0.45rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  color: #7ee8a0;
+  font-size: 0.72rem;
+}
+
+.go-tree-inspector__summary p {
+  margin: 0;
+  color: #b8beb4;
+  font-size: 0.72rem;
+}
+
+.go-tree-entry-list {
+  display: grid;
+  gap: 0.35rem;
+  max-height: 14rem;
+  overflow: auto;
+  padding: 0.45rem;
+}
+
+.go-tree-entry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 6px;
+  background: #101215;
+}
+
+.go-tree-entry div {
+  display: grid;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.go-tree-entry strong,
+.go-tree-entry code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.go-tree-entry span {
+  color: #b8beb4;
+  font-size: 0.68rem;
+}
+
+.go-tree-entry code {
+  flex: 0 0 auto;
+  color: #d7f8df;
+}
+
 @media (max-width: 980px) {
   .playground-topbar {
     grid-template-columns: 1fr;
@@ -506,6 +637,16 @@ button:disabled {
 
   .playground-actions > button {
     flex: 1 1 160px;
+  }
+
+  .playground-workspace {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(420px, 1fr) minmax(260px, auto);
+  }
+
+  .playground-state {
+    grid-template-columns: 1fr;
+    grid-template-rows: repeat(2, minmax(160px, 1fr));
   }
 
   .go-panel__header {

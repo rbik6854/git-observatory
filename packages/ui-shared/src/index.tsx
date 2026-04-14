@@ -1,5 +1,6 @@
 import { ReactNode } from "react";
 import {
+  GitObjectInspection,
   GraphSelection,
   GraphViewModel,
   InspectorModel,
@@ -10,13 +11,62 @@ function truncate(value: string, length = 12): string {
   return value.length <= length ? value : `${value.slice(0, length)}...`;
 }
 
-function statusLabel(indexStatus: string, workTreeStatus: string): string {
+function statusName(status: string): string {
+  switch (status) {
+    case "A":
+      return "new file";
+    case "M":
+      return "modified";
+    case "D":
+      return "deleted";
+    case "R":
+      return "renamed";
+    case "C":
+      return "copied";
+    case "U":
+      return "unmerged";
+    case "?":
+      return "untracked";
+    case "!":
+      return "ignored";
+    default:
+      return status.trim() ? `status ${status}` : "clean";
+  }
+}
+
+function workingTreeStatusLabel(indexStatus: string, workTreeStatus: string): string {
   if (indexStatus === "?" && workTreeStatus === "?") {
     return "untracked";
   }
-  const left = indexStatus.trim() || "-";
-  const right = workTreeStatus.trim() || "-";
-  return `${left}/${right}`;
+
+  if (workTreeStatus === "U" || indexStatus === "U") {
+    return "conflicted";
+  }
+
+  return statusName(workTreeStatus);
+}
+
+function indexStatusLabel(stage: number, indexStatus: string): string {
+  if (stage !== 0) {
+    return `unmerged stage ${stage}`;
+  }
+
+  switch (indexStatus) {
+    case "A":
+      return "staged new file";
+    case "M":
+      return "staged modified";
+    case "D":
+      return "staged delete";
+    case "R":
+      return "staged rename";
+    case "C":
+      return "staged copy";
+    case "U":
+      return "unmerged conflict";
+    default:
+      return "staged";
+  }
 }
 
 export function InfoBadge(props: { label: string; summary: string; details?: ReactNode }) {
@@ -191,7 +241,14 @@ export function GraphCanvas(props: {
       <div className="go-graph-scroll">
         <div className="go-graph-stage" style={{ width, height }}>
           <svg className="go-graph-svg" height={height} width={width}>
-            {graph.edges.filter((edge) => renderedNodeIds.has(edge.source) && renderedNodeIds.has(edge.target)).map((edge) => {
+            {graph.edges.filter((edge) => {
+              const source = nodeMap.get(edge.source);
+              return (
+                renderedNodeIds.has(edge.source) &&
+                renderedNodeIds.has(edge.target) &&
+                !(edge.relationship === "contains" && source?.type === "tree" && source.metadata.treeContentsCollapsed === true)
+              );
+            }).map((edge) => {
               const source = nodeMap.get(edge.source);
               const target = nodeMap.get(edge.target);
               if (!source || !target) {
@@ -258,12 +315,15 @@ export function GraphCanvas(props: {
                   </span>
                 ) : null}
                 {!compactLabel ? <span className="go-node__type">{nodeCaption(node.type)}</span> : null}
-                {node.type === "blob" ? (
+                {node.type === "blob" || node.type === "tree" ? (
                   <span className="go-node__badges">
-                    {Boolean(node.metadata.staged) ? (
+                    {node.type === "tree" && node.metadata.treeContentsCollapsed === true ? (
+                      <span className="go-node__badge go-node__badge--collapsed">collapsed</span>
+                    ) : null}
+                    {node.type === "blob" && Boolean(node.metadata.staged) ? (
                       <span className="go-node__badge go-node__badge--staged">staged</span>
                     ) : null}
-                    {typeof node.metadata.pathCount === "number" && node.metadata.pathCount > 1 ? (
+                    {node.type === "blob" && typeof node.metadata.pathCount === "number" && node.metadata.pathCount > 1 ? (
                       <span className="go-node__badge go-node__badge--reused">{node.metadata.pathCount} paths</span>
                     ) : null}
                   </span>
@@ -305,7 +365,7 @@ export function StatusPanel(props: {
                     type="button"
                   >
                     <span>{item.path}</span>
-                    <strong>{statusLabel(item.indexStatus, item.workTreeStatus)}</strong>
+                    <strong>{workingTreeStatusLabel(item.indexStatus, item.workTreeStatus)}</strong>
                   </button>
                 );
               })
@@ -319,10 +379,66 @@ export function StatusPanel(props: {
                     type="button"
                   >
                     <span>{item.path}</span>
-                    <code>{truncate(item.oid, 7)}</code>
+                    <strong>{indexStatusLabel(item.stage, item.indexStatus)}</strong>
                   </button>
                 );
               })}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+export function TreeInspectorPanel(props: {
+  treeOid: string | null;
+  inspection?: GitObjectInspection | null;
+}) {
+  const inspection = props.inspection?.type === "tree" ? props.inspection : null;
+  const entries = inspection?.entries ?? [];
+  const fileCount = entries.filter((entry) => entry.type === "blob").length;
+  const directoryCount = entries.filter((entry) => entry.type === "tree").length;
+
+  return (
+    <Panel title="Tree Contents" subtitle="Selected commit snapshot">
+      {!props.treeOid ? (
+        <EmptyState message="Select a tree node to inspect its tracked files." />
+      ) : !inspection ? (
+        <EmptyState message="Loading tree contents." />
+      ) : (
+        <div className="go-tree-inspector">
+          <div className="go-tree-inspector__summary">
+            <div className="go-field">
+              <span>Object id</span>
+              <code>{truncate(inspection.oid, 12)}</code>
+            </div>
+            <div className="go-tree-inspector__counts">
+              <strong>
+                {fileCount} {fileCount === 1 ? "file" : "files"}
+              </strong>
+              <strong>
+                {directoryCount} {directoryCount === 1 ? "dir" : "dirs"}
+              </strong>
+            </div>
+            {inspection.summary.truncated ? (
+              <p>{inspection.summary.renderedEntries} of {inspection.summary.totalEntries} entries loaded.</p>
+            ) : null}
+          </div>
+
+          {entries.length === 0 ? (
+            <EmptyState message="This tree has no entries." />
+          ) : (
+            <div className="go-tree-entry-list">
+              {entries.map((entry) => (
+                <article className="go-tree-entry" key={`${entry.path}:${entry.oid}`}>
+                  <div>
+                    <strong>{entry.path}</strong>
+                    <span>{entry.type === "tree" ? "directory" : "file"}</span>
+                  </div>
+                  <code>{truncate(entry.oid, 10)}</code>
+                </article>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </Panel>
