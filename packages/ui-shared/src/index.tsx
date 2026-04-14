@@ -156,13 +156,14 @@ export function GraphCanvas(props: {
     commitBadges.set(commitId, labels);
   }
 
+  const headNode = graph.nodes.find((node) => node.type === "head");
   graph.nodes.forEach((node) => {
     if (node.type === "ref" && node.oid) {
-      addCommitBadge(`commit:${node.oid}`, node.label);
+      const activeSuffix = node.target && headNode?.target === node.target ? " *" : "";
+      addCommitBadge(`commit:${node.oid}`, `${node.label}${activeSuffix}`);
     }
   });
 
-  const headNode = graph.nodes.find((node) => node.type === "head");
   if (headNode?.oid) {
     addCommitBadge(`commit:${headNode.oid}`, "HEAD");
   }
