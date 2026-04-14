@@ -2,27 +2,20 @@ import path from "node:path";
 import os from "node:os";
 import { promises as fs } from "node:fs";
 import { spawn } from "node:child_process";
-import { app, BrowserWindow, dialog, ipcMain } from "electron";
+import { app, BrowserWindow, ipcMain } from "electron";
 import chokidar, { type FSWatcher } from "chokidar";
-import * as nodePty from "node-pty";
-import type { IPty } from "node-pty";
 import {
   RepoWatchEvent,
   SandboxCreationResult,
   SandboxDescriptor,
   SandboxKind,
-  SandboxManager,
-  TerminalEvent,
-  TerminalSessionDescriptor
+  SandboxManager
 } from "@git-observatory/core-domain";
-import { lessonChapters } from "@git-observatory/core-lessons";
-import { LocalGitExecutionAdapter, LocalWorkspaceAdapter } from "@git-observatory/desktop-git-adapter";
+import { LocalGitExecutionAdapter } from "@git-observatory/desktop-git-adapter";
 
 const gitAdapter = new LocalGitExecutionAdapter();
-const workspaceAdapter = new LocalWorkspaceAdapter();
 const sessionId = `${Date.now()}`;
 const sandboxRoot = path.join(os.tmpdir(), "git-observatory");
-const terminalChannel = "observatory:terminal-event";
 const repoWatchChannel = "observatory:repo-watch-event";
 
 class ElectronSandboxManager implements SandboxManager {
@@ -41,6 +34,16 @@ class ElectronSandboxManager implements SandboxManager {
     return Array.from(this.sandboxes.values());
   }
 
+  private sandboxCleanupTargets(sandbox: SandboxDescriptor): string[] {
+    return Array.from(new Set([sandbox.repoPath, ...(sandbox.cleanupPaths ?? [])]));
+  }
+
+  private async removeSandboxTargets(sandbox: SandboxDescriptor): Promise<void> {
+    for (const target of this.sandboxCleanupTargets(sandbox)) {
+      await removeDirectoryBestEffort(target);
+    }
+  }
+
   async createSandbox(kind: SandboxKind, name?: string): Promise<SandboxCreationResult> {
     const sessionRoot = path.join(this.rootPath, this.session);
     const result = await gitAdapter.createSandbox(kind, sessionRoot, this.session, name);
@@ -53,7 +56,7 @@ class ElectronSandboxManager implements SandboxManager {
     await Promise.all(
       sandboxes.map(async (sandbox) => {
         try {
-          await removeDirectoryBestEffort(sandbox.repoPath);
+          await this.removeSandboxTargets(sandbox);
         } catch (error) {
           console.error(`Failed to remove sandbox ${sandbox.repoPath}`, error);
         } finally {
@@ -76,7 +79,7 @@ class ElectronSandboxManager implements SandboxManager {
     }
 
     try {
-      await removeDirectoryBestEffort(sandbox.repoPath);
+      await this.removeSandboxTargets(sandbox);
     } catch (error) {
       const code = (error as NodeJS.ErrnoException | undefined)?.code;
       if (code === "EBUSY" || code === "EPERM") {
@@ -259,13 +262,7 @@ async function openSystemTerminal(cwd: string): Promise<void> {
   }
 
   if (process.platform === "darwin") {
-    if (
-      await trySpawnDetached(
-        "open",
-        ["-a", "Terminal", cwd],
-        cwd
-      )
-    ) {
+    if (await trySpawnDetached("open", ["-a", "Terminal", cwd], cwd)) {
       return;
     }
     throw new Error("Failed to open Terminal.app for this repository.");
@@ -286,96 +283,6 @@ async function openSystemTerminal(cwd: string): Promise<void> {
 
   throw new Error("Failed to open a system terminal for this repository.");
 }
-
-class TerminalManager {
-  private readonly sessions = new Map<string, { descriptor: TerminalSessionDescriptor; pty: IPty; buffer: string }>();
-
-  constructor(private readonly emitEvent: (event: TerminalEvent) => void) {}
-
-  createTerminal(cwd: string): TerminalSessionDescriptor {
-    const shell = process.platform === "win32" ? "powershell.exe" : process.env.SHELL || "bash";
-    const args = process.platform === "win32" ? ["-NoLogo"] : [];
-    const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    const descriptor: TerminalSessionDescriptor = {
-      id,
-      cwd,
-      shell,
-      collapsed: false,
-      height: 320
-    };
-
-    const terminal = nodePty.spawn(shell, args, {
-      name: "xterm-color",
-      cols: 120,
-      rows: 20,
-      cwd,
-      env: process.env as Record<string, string>
-    });
-
-    terminal.onData((data) => {
-      const current = this.sessions.get(id);
-      if (current) {
-        current.buffer = `${current.buffer}${data}`.slice(-20000);
-      }
-      this.emitEvent({ type: "output", sessionId: id, data });
-    });
-
-    terminal.onExit(({ exitCode }) => {
-      this.emitEvent({ type: "exit", sessionId: id, exitCode });
-      this.sessions.delete(id);
-    });
-
-    this.sessions.set(id, { descriptor, pty: terminal, buffer: "" });
-    setTimeout(() => {
-      this.emitEvent({ type: "ready", sessionId: id });
-      this.emitEvent({ type: "cwd-change", sessionId: id, cwd });
-    }, 0);
-    return descriptor;
-  }
-
-  writeTerminal(sessionId: string, data: string): void {
-    const session = this.sessions.get(sessionId);
-    if (!session) {
-      this.emitEvent({ type: "error", sessionId, message: "Terminal session not found." });
-      return;
-    }
-
-    session.pty.write(data);
-  }
-
-  resizeTerminal(sessionId: string, cols: number, rows: number): void {
-    const session = this.sessions.get(sessionId);
-    if (!session) {
-      return;
-    }
-
-    session.pty.resize(Math.max(10, cols), Math.max(5, rows));
-  }
-
-  closeTerminal(sessionId: string): void {
-    const session = this.sessions.get(sessionId);
-    if (!session) {
-      return;
-    }
-
-    session.pty.kill();
-    this.sessions.delete(sessionId);
-  }
-
-  closeAll(): void {
-    for (const sessionId of this.sessions.keys()) {
-      this.closeTerminal(sessionId);
-    }
-  }
-
-  readBuffer(sessionId: string): string {
-    return this.sessions.get(sessionId)?.buffer ?? "";
-  }
-}
-
-const terminalManager = new TerminalManager((event) => {
-  mainWindow?.webContents.send(terminalChannel, event);
-});
 
 function emitRepoWatchEvent(event: RepoWatchEvent): void {
   mainWindow?.webContents.send(repoWatchChannel, event);
@@ -426,10 +333,7 @@ function startWatchingRepo(repoPath: string): void {
 
   try {
     const workingTreeWatcher = chokidar.watch(repoPath, {
-      ignored: [
-        /(^|[\\/])\.git([\\/]|$)/,
-        /(^|[\\/])node_modules([\\/]|$)/
-      ],
+      ignored: [/(^|[\\/])\.git([\\/]|$)/, /(^|[\\/])node_modules([\\/]|$)/],
       ignoreInitial: true,
       awaitWriteFinish: {
         stabilityThreshold: 180,
@@ -468,7 +372,6 @@ async function cleanupAndQuitIfNeeded(): Promise<void> {
   }
   cleaningUp = true;
   stopWatchingRepo();
-  terminalManager.closeAll();
   await sandboxManager.cleanupSessionSandboxes();
 }
 
@@ -476,9 +379,9 @@ function createWindow(): BrowserWindow {
   const window = new BrowserWindow({
     width: 1540,
     height: 980,
-    minWidth: 1200,
-    minHeight: 760,
-    backgroundColor: "#0f1720",
+    minWidth: 900,
+    minHeight: 620,
+    backgroundColor: "#101114",
     webPreferences: {
       contextIsolation: true,
       preload: path.join(__dirname, "preload.js")
@@ -493,21 +396,6 @@ function createWindow(): BrowserWindow {
   });
   return window;
 }
-
-ipcMain.handle("observatory:open-repo", async () => {
-  const result = await dialog.showOpenDialog({
-    properties: ["openDirectory"]
-  });
-
-  if (result.canceled || result.filePaths.length === 0) {
-    return null;
-  }
-
-  const repoPath = result.filePaths[0];
-  const snapshot = await gitAdapter.inspectRepo(repoPath);
-  startWatchingRepo(repoPath);
-  return { repoPath, snapshot };
-});
 
 ipcMain.handle("observatory:create-sandbox", async (_event, kind: SandboxKind, name?: string) => {
   const result = await sandboxManager.createSandbox(kind, name);
@@ -531,34 +419,6 @@ ipcMain.handle("observatory:inspect-object-with-options", async (_event, repoPat
   return gitAdapter.inspectObject(repoPath, oid, options);
 });
 
-ipcMain.handle("observatory:inspect-remote", async (_event, repoPath: string, remoteName: string) => {
-  return gitAdapter.inspectRemote(repoPath, remoteName);
-});
-
-ipcMain.handle("observatory:run-command", async (_event, repoPath: string, command: string) => {
-  return gitAdapter.executeCommand(repoPath, command);
-});
-
-ipcMain.handle("observatory:create-terminal", async (_event, cwd: string) => {
-  return terminalManager.createTerminal(cwd);
-});
-
-ipcMain.handle("observatory:write-terminal", async (_event, sessionId: string, data: string) => {
-  terminalManager.writeTerminal(sessionId, data);
-});
-
-ipcMain.handle("observatory:resize-terminal", async (_event, sessionId: string, cols: number, rows: number) => {
-  terminalManager.resizeTerminal(sessionId, cols, rows);
-});
-
-ipcMain.handle("observatory:close-terminal", async (_event, sessionId: string) => {
-  terminalManager.closeTerminal(sessionId);
-});
-
-ipcMain.handle("observatory:read-terminal-buffer", async (_event, sessionId: string) => {
-  return terminalManager.readBuffer(sessionId);
-});
-
 ipcMain.handle("observatory:open-system-terminal", async (_event, cwd: string) => {
   await openSystemTerminal(cwd);
 });
@@ -571,23 +431,6 @@ ipcMain.handle("observatory:stop-watching-repo", async () => {
   stopWatchingRepo();
 });
 
-ipcMain.handle("observatory:list-lessons", async () => lessonChapters);
-ipcMain.handle("observatory:read-workspace", async (_event, repoPath: string) => workspaceAdapter.readWorkspace(repoPath));
-ipcMain.handle("observatory:read-workspace-with-options", async (_event, repoPath: string, options) =>
-  workspaceAdapter.readWorkspace(repoPath, options)
-);
-ipcMain.handle("observatory:read-workspace-file", async (_event, repoPath: string, filePath: string) =>
-  workspaceAdapter.readFile(repoPath, filePath)
-);
-ipcMain.handle("observatory:create-workspace-file", async (_event, repoPath: string, filePath: string, content: string) =>
-  workspaceAdapter.createFile(repoPath, filePath, content)
-);
-ipcMain.handle("observatory:update-workspace-file", async (_event, repoPath: string, filePath: string, content: string) =>
-  workspaceAdapter.updateFile(repoPath, filePath, content)
-);
-ipcMain.handle("observatory:delete-workspace-file", async (_event, repoPath: string, filePath: string) =>
-  workspaceAdapter.deleteFile(repoPath, filePath)
-);
 ipcMain.handle("observatory:remove-sandbox", async (_event, repoPath: string) => {
   stopWatchingRepo();
   try {

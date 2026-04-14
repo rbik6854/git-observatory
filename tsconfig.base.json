@@ -16,10 +16,8 @@
     "paths": {
       "@git-observatory/core-domain": ["packages/core-domain/src"],
       "@git-observatory/core-analysis": ["packages/core-analysis/src"],
-      "@git-observatory/core-lessons": ["packages/core-lessons/src"],
       "@git-observatory/ui-shared": ["packages/ui-shared/src"],
       "@git-observatory/desktop-git-adapter": ["packages/desktop-git-adapter/src"]
     }
   }
 }
-

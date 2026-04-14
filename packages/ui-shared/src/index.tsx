@@ -3,8 +3,7 @@ import {
   GraphSelection,
   GraphViewModel,
   InspectorModel,
-  InspectorTab,
-  TerminalSessionModel
+  InspectorTab
 } from "@git-observatory/core-domain";
 
 function truncate(value: string, length = 12): string {
@@ -424,78 +423,6 @@ export function InspectorPanel(props: {
           {props.children ? <div className="go-inspector__footer">{props.children}</div> : null}
         </div>
       )}
-    </Panel>
-  );
-}
-
-export function TerminalDock(props: {
-  terminal: TerminalSessionModel;
-  onInputChange: (value: string) => void;
-  onRun: () => void;
-  onReuseHistory: (command: string) => void;
-  onRefresh: () => void;
-  disabled?: boolean;
-  summary?: string;
-}) {
-  return (
-    <Panel
-      title="Terminal"
-      subtitle={props.terminal.activeRepoPath ?? "Select a repo to run Git commands here."}
-      actions={
-        <div className="go-terminal-actions">
-          {props.summary ? <span className="go-terminal-summary">{props.summary}</span> : null}
-          <button className="go-secondary" disabled={props.disabled} onClick={props.onRefresh} type="button">
-            Refresh
-          </button>
-        </div>
-      }
-    >
-      <div className="go-terminal">
-        <div className="go-terminal__history">
-          {props.terminal.entries.length === 0 ? (
-            <EmptyState message="Run a Git command to see stdout, stderr, and exit status here." />
-          ) : (
-            props.terminal.entries.map((entry) => (
-              <article className="go-terminal-entry" key={entry.id}>
-                <div className="go-terminal-entry__header">
-                  <code>{entry.command}</code>
-                  <span className={entry.exitCode === 0 ? "go-exit go-exit--ok" : "go-exit go-exit--fail"}>
-                    exit {entry.exitCode}
-                  </span>
-                </div>
-                {entry.stdout ? <pre>{entry.stdout}</pre> : null}
-                {entry.stderr ? <pre className="go-terminal-entry__stderr">{entry.stderr}</pre> : null}
-              </article>
-            ))
-          )}
-        </div>
-
-        <div className="go-terminal__footer">
-          {props.terminal.history.length > 0 ? (
-            <div className="go-history-chips">
-              {props.terminal.history.slice(0, 6).map((command) => (
-                <button className="go-history-chip" key={command} onClick={() => props.onReuseHistory(command)} type="button">
-                  {command}
-                </button>
-              ))}
-            </div>
-          ) : null}
-
-          <div className="go-command-row">
-            <span className="go-command-row__prompt">git</span>
-            <input
-              disabled={props.disabled}
-              onChange={(event) => props.onInputChange(event.target.value)}
-              placeholder="status"
-              spellCheck={false}
-              value={props.terminal.currentInput}
-            />
-            <button disabled={props.disabled || props.terminal.pending} onClick={props.onRun} type="button">
-              {props.terminal.pending ? "Running..." : "Run"}
-            </button>
-          </div>
-        </div>
-      </div>
     </Panel>
   );
 }

@@ -7,7 +7,7 @@
     "packages/*"
   ],
   "scripts": {
-    "build:packages": "tsc -b packages/core-domain packages/core-analysis packages/core-lessons packages/ui-shared packages/desktop-git-adapter",
+    "build:packages": "tsc -b packages/core-domain packages/core-analysis packages/ui-shared packages/desktop-git-adapter",
     "build": "npm run build:packages && npm run build -w @git-observatory/desktop-shell",
     "test": "vitest run",
     "test:e2e": "playwright test",

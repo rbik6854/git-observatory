@@ -8,10 +8,8 @@
   "references": [
     { "path": "../../packages/core-domain" },
     { "path": "../../packages/core-analysis" },
-    { "path": "../../packages/core-lessons" },
     { "path": "../../packages/ui-shared" },
     { "path": "../../packages/desktop-git-adapter" }
   ],
   "include": ["src/main.ts", "src/preload.ts"]
 }
-
