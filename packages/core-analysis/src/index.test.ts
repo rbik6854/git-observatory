@@ -216,6 +216,7 @@ describe("projectGraph", () => {
   it("shows staged blobs even when they are not yet part of a committed tree", () => {
     const snapshot: RepoStateSnapshot = {
       ...createEmptySnapshot("C:/repo"),
+      workingTree: [{ path: "notes.txt", indexStatus: "A", workTreeStatus: " " }],
       index: [{ mode: "100644", oid: "blob999", stage: 0, path: "notes.txt" }],
       head: { detached: false, target: null, oid: null },
       commitGraph: []
@@ -228,6 +229,39 @@ describe("projectGraph", () => {
     expect(stagedBlob?.type).toBe("blob");
     expect(stagedBlob?.metadata.staged).toBe(true);
     expect(stagedBlob?.metadata.stagedOnly).toBe(true);
+  });
+
+  it("does not mark clean tracked index entries as staged blobs", () => {
+    const snapshot: RepoStateSnapshot = {
+      ...createEmptySnapshot("C:/repo"),
+      index: [{ mode: "100644", oid: "blob123", stage: 0, path: "README.md" }],
+      refs: [{ name: "refs/heads/main", oid: "commit123", objectType: "commit", scope: "local" }],
+      head: { detached: false, target: "refs/heads/main", oid: "commit123" },
+      commitGraph: [
+        { oid: "commit123", treeOid: "tree123", parents: [], subject: "Initial commit", decorations: ["HEAD -> main"] }
+      ]
+    };
+
+    const graph = projectGraph({
+      snapshot,
+      visibilityFilters: createDefaultGraphVisibilityFilters(),
+      expansionState: { ...createDefaultGraphExpansionState(), expandedTreeOids: ["tree123"] },
+      treeInspections: {
+        tree123: {
+          type: "tree",
+          oid: "tree123",
+          size: 24,
+          storage: "loose",
+          entries: [{ mode: "100644", type: "blob", oid: "blob123", path: "README.md" }],
+          summary: { renderedEntries: 1, totalEntries: 1, truncated: false }
+        }
+      }
+    });
+
+    const committedBlob = graph.nodes.find((node) => node.id === "blob:blob123");
+
+    expect(committedBlob?.metadata.staged).toBeFalsy();
+    expect(committedBlob?.metadata.stagedOnly).toBeFalsy();
   });
 
   it("shows an unborn branch ref after git init before the first commit exists", () => {
@@ -247,6 +281,7 @@ describe("projectGraph", () => {
   it("surfaces additional staged paths when a staged blob reuses an existing blob object", () => {
     const snapshot: RepoStateSnapshot = {
       ...createEmptySnapshot("C:/repo"),
+      workingTree: [{ path: "notes.txt", indexStatus: "A", workTreeStatus: " " }],
       index: [{ mode: "100644", oid: "blob123", stage: 0, path: "notes.txt" }],
       refs: [{ name: "refs/heads/main", oid: "commit123", objectType: "commit", scope: "local" }],
       head: { detached: false, target: "refs/heads/main", oid: "commit123" },
@@ -275,6 +310,34 @@ describe("projectGraph", () => {
     expect(reusedBlob?.label).toBe("README.md");
     expect(reusedBlob?.metadata.pathCount).toBe(2);
     expect(reusedBlob?.metadata.staged).toBe(true);
+  });
+
+  it("places side branch commits in a separate lane from the current branch first-parent path", () => {
+    const snapshot: RepoStateSnapshot = {
+      ...createEmptySnapshot("C:/repo"),
+      refs: [
+        { name: "refs/heads/main", oid: "main3", objectType: "commit", scope: "local" },
+        { name: "refs/heads/feature", oid: "feature4", objectType: "commit", scope: "local" }
+      ],
+      head: { detached: false, target: "refs/heads/main", oid: "main3" },
+      commitGraph: [
+        { oid: "main3", treeOid: "tree-main3", parents: ["main2"], subject: "Main adds line 3", decorations: ["HEAD -> main"] },
+        { oid: "feature4", treeOid: "tree-feature4", parents: ["feature3"], subject: "Feature adds line 4", decorations: ["feature"] },
+        { oid: "feature3", treeOid: "tree-feature3", parents: ["main2"], subject: "Feature adds line 3", decorations: [] },
+        { oid: "main2", treeOid: "tree-main2", parents: ["initial"], subject: "Main adds line 2", decorations: [] },
+        { oid: "initial", treeOid: "tree-initial", parents: [], subject: "Initial commit", decorations: [] }
+      ]
+    };
+
+    const graph = projectGraph({ snapshot });
+    const main3 = graph.nodes.find((node) => node.id === "commit:main3");
+    const main2 = graph.nodes.find((node) => node.id === "commit:main2");
+    const feature4 = graph.nodes.find((node) => node.id === "commit:feature4");
+    const mainParentEdge = graph.edges.find((edge) => edge.id === "parent:commit:main3:commit:main2");
+
+    expect(mainParentEdge).toBeTruthy();
+    expect(main3?.position.x).toBe(main2?.position.x);
+    expect(feature4?.position.x).not.toBe(main3?.position.x);
   });
 
   it("fans out blob nodes that would otherwise overlap", () => {

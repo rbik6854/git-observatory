@@ -413,8 +413,82 @@ function ensureUniquePathList(value: unknown, nextPath: string): string[] {
   return existing.includes(nextPath) ? existing : [...existing, nextPath];
 }
 
+function isIndexEntryStaged(snapshot: RepoStateSnapshot, path: string, stage: number): boolean {
+  if (stage !== 0) {
+    return true;
+  }
+
+  const workingTreeEntry = snapshot.workingTree.find((item) => item.path === path);
+  if (!workingTreeEntry) {
+    return false;
+  }
+
+  return workingTreeEntry.indexStatus.trim().length > 0 && workingTreeEntry.indexStatus !== "?";
+}
+
 function blobNodeId(oid: string): string {
   return `blob:${oid}`;
+}
+
+function assignCommitLanes(snapshot: RepoStateSnapshot): Map<string, number> {
+  const commitsByOid = toMap(snapshot.commitGraph, (commit) => commit.oid);
+  const lanes = new Map<string, number>();
+
+  function walkFirstParent(startOid: string | null | undefined, lane: number): void {
+    let currentOid = startOid;
+    while (currentOid && commitsByOid.has(currentOid) && !lanes.has(currentOid)) {
+      lanes.set(currentOid, lane);
+      currentOid = commitsByOid.get(currentOid)?.parents[0] ?? null;
+    }
+  }
+
+  walkFirstParent(snapshot.head.oid, 0);
+
+  const orderedRefs = snapshot.refs
+    .filter((ref) => ref.objectType === "commit" && ref.oid && ref.oid !== snapshot.head.oid)
+    .sort((left, right) => {
+      const leftLocal = left.scope === "local" ? 0 : 1;
+      const rightLocal = right.scope === "local" ? 0 : 1;
+      if (leftLocal !== rightLocal) {
+        return leftLocal - rightLocal;
+      }
+      return left.name.localeCompare(right.name);
+    });
+
+  let nextLane = lanes.size > 0 ? 1 : 0;
+  orderedRefs.forEach((ref) => {
+    if (lanes.has(ref.oid)) {
+      return;
+    }
+    walkFirstParent(ref.oid, nextLane);
+    nextLane += 1;
+  });
+
+  snapshot.commitGraph.forEach((commit) => {
+    if (!lanes.has(commit.oid)) {
+      lanes.set(commit.oid, nextLane);
+      nextLane += 1;
+    }
+  });
+
+  return lanes;
+}
+
+function nodeDiameter(type: GraphViewModel["nodes"][number]["type"]): number {
+  switch (type) {
+    case "head":
+      return 72;
+    case "ref":
+      return 84;
+    case "commit":
+      return 110;
+    case "tree":
+      return 84;
+    case "blob":
+      return 88;
+    default:
+      return 88;
+  }
 }
 
 function updateBlobNodePresentation(node: GraphViewModel["nodes"][number]) {
@@ -455,6 +529,44 @@ function resolveBlobCollisions(nodes: GraphViewModel["nodes"]) {
 
     blob.position = { x, y };
     placed.push({ x, y });
+  });
+}
+
+function resolveNodeCollisions(nodes: GraphViewModel["nodes"]) {
+  const sorted = nodes
+    .slice()
+    .sort((left, right) => {
+      if (left.position.x !== right.position.x) {
+        return left.position.x - right.position.x;
+      }
+      return left.position.y - right.position.y;
+    });
+
+  const placed: Array<{ x: number; y: number; radius: number }> = [];
+
+  sorted.forEach((node) => {
+    let x = node.position.x;
+    let y = node.position.y;
+    const radius = nodeDiameter(node.type) / 2;
+    let attempts = 0;
+
+    while (
+      placed.some((candidate) => {
+        const minX = radius + candidate.radius + 28;
+        const minY = radius + candidate.radius + 26;
+        return Math.abs(candidate.x - x) < minX && Math.abs(candidate.y - y) < minY;
+      }) &&
+      attempts < 18
+    ) {
+      attempts += 1;
+      y += Math.max(90, radius + 24);
+      if (attempts % 4 === 0) {
+        x += 72;
+      }
+    }
+
+    node.position = { x, y };
+    placed.push({ x, y, radius });
   });
 }
 
@@ -637,18 +749,22 @@ function buildGraphStructure(params: {
   const edges: GraphEdge[] = [];
   const nodeIdsByOid = new Map<string, string>();
   const commitY = new Map<string, number>();
+  const commitX = new Map<string, number>();
+  const commitLanes = assignCommitLanes(snapshot);
 
   snapshot.commitGraph.forEach((commit, index) => {
     const id = `commit:${commit.oid}`;
+    const x = 470 + (commitLanes.get(commit.oid) ?? 0) * 150;
     const y = 110 + index * 118;
     commitY.set(commit.oid, y);
+    commitX.set(commit.oid, x);
     nodes.push({
       id,
       type: "commit",
       label: commit.subject || truncate(commit.oid, 10),
       oid: commit.oid,
       target: null,
-      position: { x: 470, y },
+      position: { x, y },
       metadata: {
         oid: commit.oid,
         treeOid: commit.treeOid,
@@ -661,7 +777,20 @@ function buildGraphStructure(params: {
   });
 
   const visibleRefs = visibilityFilters.showRefs
-    ? snapshot.refs.filter((ref) => visibilityFilters.showTags || ref.scope !== "tag")
+    ? snapshot.refs
+        .filter((ref) => visibilityFilters.showTags || ref.scope !== "tag")
+        .concat(
+          snapshot.head.target && !snapshot.head.detached && !snapshot.refs.some((ref) => ref.name === snapshot.head.target)
+            ? [
+                {
+                  name: snapshot.head.target,
+                  oid: "",
+                  objectType: "commit" as const,
+                  scope: "local" as const
+                }
+              ]
+            : []
+        )
     : [];
 
   const refGroups = new Map<string, typeof visibleRefs>();
@@ -675,7 +804,8 @@ function buildGraphStructure(params: {
   visibleRefs.forEach((ref, index) => {
     const siblings = refGroups.get(ref.oid || ref.name) ?? [ref];
     const siblingIndex = siblings.findIndex((candidate) => candidate.name === ref.name);
-    const targetY = commitY.get(ref.oid) ?? 110 + index * 88;
+    const targetY = ref.oid ? (commitY.get(ref.oid) ?? 110 + index * 88) : 110 + index * 88;
+    const targetX = ref.oid ? (commitX.get(ref.oid) ?? 470) : 470;
     const offset = (siblingIndex - (siblings.length - 1) / 2) * 96;
     const id = `ref:${ref.name}`;
     nodes.push({
@@ -684,7 +814,7 @@ function buildGraphStructure(params: {
       label: shortRefName(ref.name),
       oid: ref.oid,
       target: ref.name,
-      position: { x: 220, y: targetY + offset },
+      position: { x: Math.max(180, targetX - 250), y: targetY + offset },
       metadata: {
         name: ref.name,
         scope: ref.scope,
@@ -696,11 +826,11 @@ function buildGraphStructure(params: {
     });
   });
 
-  const headY =
-    (snapshot.head.target
-      ? visibleRefs.find((ref) => ref.name === snapshot.head.target)?.oid
-      : snapshot.head.oid) && snapshot.head.oid
-      ? (commitY.get(snapshot.head.oid) ?? 110)
+  const symbolicHeadRef = snapshot.head.target ? visibleRefs.find((ref) => ref.name === snapshot.head.target) : null;
+  const headY = snapshot.head.oid
+    ? (commitY.get(snapshot.head.oid) ?? 110)
+    : symbolicHeadRef
+      ? nodes.find((node) => node.id === `ref:${symbolicHeadRef.name}`)?.position.y ?? 110
       : 110;
 
   nodes.push({
@@ -726,13 +856,14 @@ function buildGraphStructure(params: {
       }
       seenTrees.add(commit.treeOid);
       const id = `tree:${commit.treeOid}`;
+      const x = (commitX.get(commit.oid) ?? 470) + 300;
       nodes.push({
         id,
         type: "tree",
         label: `TREE ${truncate(commit.treeOid, 8)}`,
         oid: commit.treeOid,
         target: null,
-        position: { x: 770, y: 110 + index * 118 },
+        position: { x, y: 110 + index * 118 },
         metadata: {
           oid: commit.treeOid,
           commitOid: commit.oid
@@ -762,6 +893,9 @@ function buildGraphStructure(params: {
   });
 
   visibleRefs.forEach((ref) => {
+    if (!ref.oid) {
+      return;
+    }
     const targetId = nodeIdsByOid.get(ref.oid);
     if (!targetId) {
       return;
@@ -811,6 +945,7 @@ function buildGraphStructure(params: {
     snapshot.index.forEach((entry, index) => {
       const id = blobNodeId(entry.oid);
       const existingNode = nodes.find((node) => node.id === id);
+      const staged = isIndexEntryStaged(snapshot, entry.path, entry.stage);
 
       if (!existingNode) {
         nodes.push({
@@ -827,9 +962,10 @@ function buildGraphStructure(params: {
             paths: [entry.path],
             referenceCount: 1,
             reused: false,
-            staged: true,
-            stagedOnly: true,
-            stagedPaths: [entry.path]
+            indexEntry: true,
+            staged,
+            stagedOnly: staged,
+            stagedPaths: staged ? [entry.path] : []
           },
           emphasis: delta?.objectsAdded.includes(entry.oid) ? "new" : delta?.indexChanged.includes(`${entry.path}:${entry.stage}`) ? "changed" : "default"
         });
@@ -838,8 +974,11 @@ function buildGraphStructure(params: {
       }
 
       existingNode.metadata.paths = ensureUniquePathList(existingNode.metadata.paths, entry.path);
-      existingNode.metadata.stagedPaths = ensureUniquePathList(existingNode.metadata.stagedPaths, entry.path);
-      existingNode.metadata.staged = true;
+      existingNode.metadata.indexEntry = true;
+      if (staged) {
+        existingNode.metadata.stagedPaths = ensureUniquePathList(existingNode.metadata.stagedPaths, entry.path);
+        existingNode.metadata.staged = true;
+      }
       existingNode.metadata.stagedOnly = false;
       existingNode.metadata.reused =
         (Array.isArray(existingNode.metadata.paths) ? existingNode.metadata.paths.length : 1) > 1;
@@ -848,6 +987,7 @@ function buildGraphStructure(params: {
   }
 
   resolveBlobCollisions(nodes);
+  resolveNodeCollisions(nodes);
 
   return { nodes, edges };
 }
