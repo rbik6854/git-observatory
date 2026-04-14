@@ -205,10 +205,11 @@ export function GraphCanvas(props: {
             const dimensions = nodeDimensions(node.type);
             const selection: GraphSelection = { kind: "node", id: node.id };
             const selected = selectionMatches(graph.selection, selection);
+            const compactLabel = node.type === "head" || node.type === "ref";
 
             return (
               <button
-                className={`go-node go-node--${node.type} ${selected ? "is-selected" : ""} ${node.emphasis && node.emphasis !== "default" ? `is-${node.emphasis}` : ""}`}
+                className={`go-node go-node--${node.type} ${compactLabel ? "go-node--compact" : ""} ${selected ? "is-selected" : ""} ${node.emphasis && node.emphasis !== "default" ? `is-${node.emphasis}` : ""}`}
                 key={node.id}
                 onClick={() => props.onSelectNode(selection)}
                 style={{
@@ -219,7 +220,7 @@ export function GraphCanvas(props: {
                 }}
                 type="button"
               >
-                <span className="go-node__type">{nodeCaption(node.type)}</span>
+                {!compactLabel ? <span className="go-node__type">{nodeCaption(node.type)}</span> : null}
                 {node.type === "blob" ? (
                   <span className="go-node__badges">
                     {Boolean(node.metadata.staged) ? (
@@ -231,7 +232,7 @@ export function GraphCanvas(props: {
                   </span>
                 ) : null}
                 <strong>{node.label}</strong>
-                {node.oid ? <code>{truncate(node.oid, 7)}</code> : node.target ? <code>{node.target}</code> : null}
+                {!compactLabel && node.oid ? <code>{truncate(node.oid, 7)}</code> : !compactLabel && node.target ? <code>{node.target}</code> : null}
               </button>
             );
           })}

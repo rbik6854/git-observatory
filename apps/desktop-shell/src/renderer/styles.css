@@ -388,6 +388,18 @@ button:disabled {
   line-height: 1.05;
 }
 
+.go-node--compact {
+  align-content: center;
+  padding: 0.25rem 0.55rem;
+}
+
+.go-node--compact strong {
+  max-width: 100%;
+  font-size: 0.72rem;
+  line-height: 1;
+  white-space: nowrap;
+}
+
 .go-node code {
   line-height: 1;
 }
