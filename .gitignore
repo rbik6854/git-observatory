@@ -3,7 +3,12 @@ dist/
 dist-electron/
 coverage/
 .vite/
+*.tsbuildinfo
 *.log
+.env
+.env.*
+!.env.example
 test-results/
+.playwright/
 .agent-worktrees/
 .worktrees/

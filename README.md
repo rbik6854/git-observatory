@@ -6,7 +6,6 @@ Desktop-first visual companion for observing Git commits, refs, trees, the index
 
 - `packages/core-domain`: serializable domain types and command parsing/risk classification
 - `packages/core-analysis`: snapshot diffing and explanation helpers
-- `packages/core-lessons`: data-driven lesson and workflow scenarios
 - `packages/ui-shared`: React observability panels
 - `packages/desktop-git-adapter`: local Git execution and snapshot extraction
 - `apps/desktop-shell`: Electron shell and renderer UI
@@ -61,4 +60,4 @@ npm run test:e2e
 npm run agents:check
 ```
 
-The desktop app currently implements the architectural spine and an initial end-to-end observability flow. The shared packages are structured so a future web shell can reuse the same snapshot, transition, lesson, and visualization contracts.
+The desktop app currently implements the architectural spine and an initial end-to-end observability flow. The shared packages are structured so a future web shell can reuse the same snapshot, transition, and visualization contracts.
