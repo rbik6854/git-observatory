@@ -108,6 +108,42 @@ test("playground canvas expands committed tree contents after refresh", async ()
   }
 });
 
+test("playground canvas collapses large committed tree contents", async () => {
+  const electronApp = await electron.launch({
+    executablePath: electronBinary as unknown as string,
+    args: [path.join(desktopShellRoot, "dist-electron", "main.js")],
+    cwd: desktopShellRoot,
+    env: Object.fromEntries(Object.entries(process.env).filter(([key]) => key !== "ELECTRON_RUN_AS_NODE"))
+  });
+
+  try {
+    const page = await electronApp.firstWindow();
+
+    await page.getByRole("button", { name: "New Playground" }).click();
+    const repoPath = (await page.locator(".playground-path").textContent({ timeout: 30000 }))?.trim();
+    if (!repoPath) {
+      throw new Error("Playground path was not rendered.");
+    }
+
+    execFileSync("git", ["init"], { cwd: repoPath });
+    execFileSync("git", ["config", "user.name", "Playground Test"], { cwd: repoPath });
+    execFileSync("git", ["config", "user.email", "playground@example.test"], { cwd: repoPath });
+    for (let index = 0; index < 5; index += 1) {
+      writeFileSync(path.join(repoPath, `tracked-${index}.txt`), `tracked ${index}\n`);
+    }
+    execFileSync("git", ["add", "."], { cwd: repoPath });
+    execFileSync("git", ["commit", "-m", "add many files"], { cwd: repoPath });
+
+    await page.getByRole("button", { name: "Refresh" }).click();
+
+    await expect(page.locator(".go-node--tree")).toContainText("5 entries");
+    await expect(page.locator(".go-node--blob")).toHaveCount(0);
+    await expect(page.locator(".go-graph-edge--contains")).toHaveCount(1);
+  } finally {
+    await electronApp.close();
+  }
+});
+
 test("new playground creates a separate repo and all session repos are cleaned on exit", async () => {
   const electronApp = await electron.launch({
     executablePath: electronBinary as unknown as string,

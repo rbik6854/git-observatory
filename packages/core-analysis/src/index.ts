@@ -468,6 +468,7 @@ const REF_LABEL_X_OFFSET = -128;
 const REF_LABEL_Y_OFFSET = 22;
 const OBJECT_COLUMN_GAP = 300;
 const OBJECT_CHILD_COLUMN_GAP = 260;
+const INLINE_TREE_ENTRY_LIMIT = 4;
 
 function assignCommitLanes(snapshot: RepoStateSnapshot): Map<string, number> {
   const commitsByOid = toMap(snapshot.commitGraph, (commit) => commit.oid);
@@ -576,6 +577,23 @@ function buildTreeLayout(
   const tree = treeInspections[treeOid];
   if (!tree || tree.type !== "tree") {
     return;
+  }
+
+  const parentNode = nodes.find((node) => node.id === parentNodeId);
+  if (parentNode) {
+    parentNode.metadata.treeEntryCount = tree.entries.length;
+  }
+
+  if (tree.entries.length > INLINE_TREE_ENTRY_LIMIT) {
+    if (parentNode) {
+      parentNode.label = `${tree.entries.length} entries`;
+      parentNode.metadata.treeContentsCollapsed = true;
+    }
+    return;
+  }
+
+  if (parentNode) {
+    parentNode.metadata.treeContentsCollapsed = false;
   }
 
   const offsetX = parentX + OBJECT_CHILD_COLUMN_GAP;
@@ -937,6 +955,10 @@ function buildGraphStructure(params: {
       const id = blobNodeId(entry.oid);
       const existingNode = nodes.find((node) => node.id === id);
       const staged = isIndexEntryStaged(snapshot, entry.path, entry.stage);
+
+      if (!existingNode && !staged) {
+        return;
+      }
 
       if (!existingNode) {
         nodes.push({

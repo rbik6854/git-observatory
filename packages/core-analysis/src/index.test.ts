@@ -571,6 +571,54 @@ describe("projectGraph", () => {
     expect(blobA?.position.x === blobB?.position.x && blobA?.position.y === blobB?.position.y).toBe(false);
   });
 
+  it("collapses large tree contents instead of fanning out every blob", () => {
+    const snapshot: RepoStateSnapshot = {
+      ...createEmptySnapshot("C:/repo"),
+      refs: [{ name: "refs/heads/main", oid: "commit123", objectType: "commit", scope: "local" }],
+      head: { detached: false, target: "refs/heads/main", oid: "commit123" },
+      index: [
+        { mode: "100644", oid: "blob-a", stage: 0, path: "one.txt" },
+        { mode: "100644", oid: "blob-b", stage: 0, path: "two.txt" },
+        { mode: "100644", oid: "blob-c", stage: 0, path: "three.txt" },
+        { mode: "100644", oid: "blob-d", stage: 0, path: "four.txt" },
+        { mode: "100644", oid: "blob-e", stage: 0, path: "five.txt" }
+      ],
+      commitGraph: [
+        { oid: "commit123", treeOid: "tree123", parents: [], subject: "Initial commit", decorations: ["HEAD -> main"] }
+      ]
+    };
+
+    const graph = projectGraph({
+      snapshot,
+      visibilityFilters: createDefaultGraphVisibilityFilters(),
+      expansionState: { ...createDefaultGraphExpansionState(), expandedTreeOids: ["tree123"] },
+      treeInspections: {
+        tree123: {
+          type: "tree",
+          oid: "tree123",
+          size: 96,
+          storage: "loose",
+          entries: [
+            { mode: "100644", type: "blob", oid: "blob-a", path: "one.txt" },
+            { mode: "100644", type: "blob", oid: "blob-b", path: "two.txt" },
+            { mode: "100644", type: "blob", oid: "blob-c", path: "three.txt" },
+            { mode: "100644", type: "blob", oid: "blob-d", path: "four.txt" },
+            { mode: "100644", type: "blob", oid: "blob-e", path: "five.txt" }
+          ],
+          summary: { renderedEntries: 5, totalEntries: 5, truncated: false }
+        }
+      }
+    });
+
+    const tree = graph.nodes.find((node) => node.id === "tree:tree123");
+
+    expect(graph.nodes.filter((node) => node.type === "blob")).toHaveLength(0);
+    expect(graph.edges.filter((edge) => edge.source === "tree:tree123" && edge.relationship === "contains")).toHaveLength(0);
+    expect(tree?.label).toBe("5 entries");
+    expect(tree?.metadata.treeEntryCount).toBe(5);
+    expect(tree?.metadata.treeContentsCollapsed).toBe(true);
+  });
+
   it("reuses structural graph nodes and edges when only selection changes", () => {
     const snapshot: RepoStateSnapshot = {
       ...createEmptySnapshot("C:/repo"),
