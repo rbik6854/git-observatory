@@ -1,5 +1,6 @@
 import { ReactNode } from "react";
 import {
+  GitObjectInspection,
   GraphSelection,
   GraphViewModel,
   InspectorModel,
@@ -382,6 +383,62 @@ export function StatusPanel(props: {
                   </button>
                 );
               })}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+export function TreeInspectorPanel(props: {
+  treeOid: string | null;
+  inspection?: GitObjectInspection | null;
+}) {
+  const inspection = props.inspection?.type === "tree" ? props.inspection : null;
+  const entries = inspection?.entries ?? [];
+  const fileCount = entries.filter((entry) => entry.type === "blob").length;
+  const directoryCount = entries.filter((entry) => entry.type === "tree").length;
+
+  return (
+    <Panel title="Tree Contents" subtitle="Selected commit snapshot">
+      {!props.treeOid ? (
+        <EmptyState message="Select a tree node to inspect its tracked files." />
+      ) : !inspection ? (
+        <EmptyState message="Loading tree contents." />
+      ) : (
+        <div className="go-tree-inspector">
+          <div className="go-tree-inspector__summary">
+            <div className="go-field">
+              <span>Object id</span>
+              <code>{truncate(inspection.oid, 12)}</code>
+            </div>
+            <div className="go-tree-inspector__counts">
+              <strong>
+                {fileCount} {fileCount === 1 ? "file" : "files"}
+              </strong>
+              <strong>
+                {directoryCount} {directoryCount === 1 ? "dir" : "dirs"}
+              </strong>
+            </div>
+            {inspection.summary.truncated ? (
+              <p>{inspection.summary.renderedEntries} of {inspection.summary.totalEntries} entries loaded.</p>
+            ) : null}
+          </div>
+
+          {entries.length === 0 ? (
+            <EmptyState message="This tree has no entries." />
+          ) : (
+            <div className="go-tree-entry-list">
+              {entries.map((entry) => (
+                <article className="go-tree-entry" key={`${entry.path}:${entry.oid}`}>
+                  <div>
+                    <strong>{entry.path}</strong>
+                    <span>{entry.type === "tree" ? "directory" : "file"}</span>
+                  </div>
+                  <code>{truncate(entry.oid, 10)}</code>
+                </article>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </Panel>

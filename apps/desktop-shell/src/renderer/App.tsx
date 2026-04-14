@@ -8,7 +8,7 @@ import {
   RepoStateSnapshot,
   SandboxDescriptor
 } from "@git-observatory/core-domain";
-import { GraphCanvas, StatusPanel } from "@git-observatory/ui-shared";
+import { GraphCanvas, StatusPanel, TreeInspectorPanel } from "@git-observatory/ui-shared";
 
 const graphVisibility: GraphVisibilityFilters = {
   showRefs: true,
@@ -81,6 +81,15 @@ export default function App() {
     () => graph?.stagingArea.filter((item) => isIndexVisible(item, graph.workingArea)) ?? [],
     [graph]
   );
+  const selectedTreeNode = useMemo(() => {
+    if (!graph || !selection || !isNodeSelection(selection)) {
+      return null;
+    }
+
+    const node = graph.nodes.find((item) => item.id === selection.id);
+    return node?.type === "tree" ? node : null;
+  }, [graph, selection]);
+  const selectedTreeInspection = selectedTreeNode?.oid ? treeInspections[selectedTreeNode.oid] : null;
 
   const refreshSnapshot = useCallback(async (path = repoPath) => {
     if (!path) {
@@ -312,6 +321,14 @@ export default function App() {
               title="Index"
             />
           </div>
+          {selectedTreeNode ? (
+            <div className="playground-state-panel">
+              <TreeInspectorPanel
+                inspection={selectedTreeInspection}
+                treeOid={selectedTreeNode.oid}
+              />
+            </div>
+          ) : null}
         </aside>
       </section>
     </main>

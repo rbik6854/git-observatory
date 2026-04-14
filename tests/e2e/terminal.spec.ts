@@ -145,6 +145,56 @@ test("playground canvas collapses large committed tree contents", async () => {
   }
 });
 
+test("tree click opens a scrollable tree contents inspector", async () => {
+  const electronApp = await electron.launch({
+    executablePath: electronBinary as unknown as string,
+    args: [path.join(desktopShellRoot, "dist-electron", "main.js")],
+    cwd: desktopShellRoot,
+    env: Object.fromEntries(Object.entries(process.env).filter(([key]) => key !== "ELECTRON_RUN_AS_NODE"))
+  });
+
+  try {
+    const page = await electronApp.firstWindow();
+
+    await page.getByRole("button", { name: "New Playground" }).click();
+    const repoPath = (await page.locator(".playground-path").textContent({ timeout: 30000 }))?.trim();
+    if (!repoPath) {
+      throw new Error("Playground path was not rendered.");
+    }
+
+    execFileSync("git", ["init"], { cwd: repoPath });
+    execFileSync("git", ["config", "user.name", "Playground Test"], { cwd: repoPath });
+    execFileSync("git", ["config", "user.email", "playground@example.test"], { cwd: repoPath });
+    for (let index = 0; index < 8; index += 1) {
+      writeFileSync(path.join(repoPath, `tree-file-${index}.txt`), `tree ${index}\n`);
+    }
+    execFileSync("git", ["add", "."], { cwd: repoPath });
+    execFileSync("git", ["commit", "-m", "tree contents"], { cwd: repoPath });
+
+    await page.getByRole("button", { name: "Refresh" }).click();
+    await expect(page.locator(".go-node--tree")).toContainText("8 files");
+    await page.locator(".go-node--tree").click();
+
+    const inspector = page.locator(".playground-state-panel").filter({ hasText: "Tree Contents" });
+    await expect(inspector).toContainText("Selected commit snapshot");
+    await expect(inspector).toContainText("8 files");
+    await expect(inspector).toContainText("0 dirs");
+    await expect(inspector).toContainText("tree-file-0.txt");
+    await expect(inspector).toContainText("tree-file-7.txt");
+
+    const entryList = inspector.locator(".go-tree-entry-list");
+    await expect(async () => {
+      const dimensions = await entryList.evaluate((element) => ({
+        clientHeight: element.clientHeight,
+        scrollHeight: element.scrollHeight
+      }));
+      expect(dimensions.scrollHeight).toBeGreaterThanOrEqual(dimensions.clientHeight);
+    }).toPass();
+  } finally {
+    await electronApp.close();
+  }
+});
+
 test("playground canvas keeps large staged file sets in the index panel", async () => {
   const electronApp = await electron.launch({
     executablePath: electronBinary as unknown as string,
