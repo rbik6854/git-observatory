@@ -137,3 +137,68 @@ test("new playground creates a separate repo and all session repos are cleaned o
   expect(existsSync(firstRepoPath)).toBe(false);
   expect(existsSync(secondRepoPath)).toBe(false);
 });
+
+test("working tree and index panels keep fixed height and scroll overflowing entries", async () => {
+  const electronApp = await electron.launch({
+    executablePath: electronBinary as unknown as string,
+    args: [path.join(desktopShellRoot, "dist-electron", "main.js")],
+    cwd: desktopShellRoot,
+    env: Object.fromEntries(Object.entries(process.env).filter(([key]) => key !== "ELECTRON_RUN_AS_NODE"))
+  });
+
+  try {
+    const page = await electronApp.firstWindow();
+
+    await page.getByRole("button", { name: "New Playground" }).click();
+    const repoPath = (await page.locator(".playground-path").textContent({ timeout: 30000 }))?.trim();
+    if (!repoPath) {
+      throw new Error("Playground path was not rendered.");
+    }
+
+    execFileSync("git", ["init"], { cwd: repoPath });
+    for (let index = 0; index < 10; index += 1) {
+      writeFileSync(path.join(repoPath, `file${index}.txt`), `file ${index}\n`);
+    }
+
+    await page.getByRole("button", { name: "Refresh" }).click();
+    await expect(page.locator(".playground-state-panel").filter({ hasText: "Working Tree" })).toContainText("file0.txt");
+
+    const workingPanel = page.locator(".playground-state-panel").filter({ hasText: "Working Tree" });
+    const indexPanel = page.locator(".playground-state-panel").filter({ hasText: "Index" });
+    const workingList = workingPanel.locator(".go-status-list");
+
+    await expect(async () => {
+      const dimensions = await page.evaluate(() => {
+        const working = document.querySelector(".playground-state-panel:first-child")?.getBoundingClientRect();
+        const index = document.querySelector(".playground-state-panel:nth-child(2)")?.getBoundingClientRect();
+        const list = document.querySelector(".playground-state-panel:first-child .go-status-list");
+        return {
+          workingHeight: working?.height ?? 0,
+          indexHeight: index?.height ?? 0,
+          listClientHeight: list?.clientHeight ?? 0,
+          listScrollHeight: list?.scrollHeight ?? 0
+        };
+      });
+
+      expect(dimensions.workingHeight).toBeLessThanOrEqual(dimensions.indexHeight + 8);
+      expect(dimensions.listScrollHeight).toBeGreaterThan(dimensions.listClientHeight);
+    }).toPass();
+
+    const visibleRows = await workingPanel.locator(".go-status-item").evaluateAll((items) =>
+      items.filter((item) => {
+        const itemRect = item.getBoundingClientRect();
+        const listRect = item.parentElement?.getBoundingClientRect();
+        return Boolean(listRect && itemRect.bottom > listRect.top && itemRect.top < listRect.bottom);
+      }).length
+    );
+    expect(visibleRows).toBeLessThanOrEqual(7);
+
+    await workingList.evaluate((element) => {
+      element.scrollTop = element.scrollHeight;
+    });
+    await expect(workingPanel).toContainText("file9.txt");
+    await expect(indexPanel).toContainText("No staged paths");
+  } finally {
+    await electronApp.close();
+  }
+});

@@ -329,7 +329,7 @@ button:disabled {
 }
 
 .go-status-list {
-  height: 100%;
+  max-height: min(100%, 15rem);
   overflow: auto;
   padding: 0.45rem;
 }
