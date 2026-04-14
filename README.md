@@ -1,63 +1,76 @@
 # Git Observatory
 
-Desktop-first visual companion for observing Git commits, refs, trees, the index, and working tree state.
+Git Observatory is a desktop app for learning Git by watching repository state change in real time.
 
-## Packages
+The current app creates a disposable practice repository, opens a terminal in that repository, and renders the Git structures affected by the commands you run. It focuses on the relationship between commits, refs, trees, blobs, the index, and the working tree.
 
-- `packages/core-domain`: serializable domain types and command parsing/risk classification
-- `packages/core-analysis`: snapshot diffing and explanation helpers
-- `packages/ui-shared`: React observability panels
-- `packages/desktop-git-adapter`: local Git execution and snapshot extraction
-- `apps/desktop-shell`: Electron shell and renderer UI
+## Current Capabilities
 
-## Status
+- Create a temporary Git playground from the desktop app
+- Open a system terminal directly in the playground repository
+- Refresh automatically when repository files or Git metadata change
+- Render a visual graph of commits, refs, trees, and blobs
+- Inspect working tree changes and staged index entries side by side
+- Select tree nodes to inspect committed tree contents
+- Capture serializable repository snapshots for analysis and UI rendering
+- Keep core Git state logic separate from the Electron shell and React UI
 
-This repository is scaffolded as an initial MVP for:
+## Project Structure
 
-- guided internals curriculum
-- sandbox lab
-- open repo analysis
-- serializable snapshot/transition payloads
-- Electron shell with a reusable UI layer
+This repository is an npm workspace with the Electron app in `apps/` and reusable TypeScript packages in `packages/`.
 
-## Commands
+- `apps/desktop-shell`: Electron main process, preload bridge, and renderer entrypoint
+- `packages/core-domain`: shared Git state types, command parsing, risk classification, and snapshot contracts
+- `packages/core-analysis`: snapshot diffing, transition explanations, and graph projection logic
+- `packages/ui-shared`: shared React panels for graph, status, and tree inspection views
+- `packages/desktop-git-adapter`: local Git execution, sandbox creation, and repository snapshot extraction
+- `tests/e2e`: Playwright coverage for desktop workflows
+- `docs/agents`, `tasks`, `templates`, `scripts/agents`: task and agent workflow support
 
-After installing dependencies:
+## Requirements
 
-```bash
-npm install
-npm run build
-npm test
-```
+- Node.js 22 or newer
+- npm
+- Git available on your `PATH`
 
 ## Run Locally
 
-This project is currently run as an Electron desktop app from the workspace root.
-
-1. Install dependencies:
+Install dependencies from the workspace root:
 
 ```bash
 npm install
 ```
 
-2. Build the shared packages and desktop shell:
+Build the shared packages and Electron shell:
 
 ```bash
 npm run build
 ```
 
-3. Start the Electron app:
+Start the desktop app:
 
 ```bash
 npm run start -w @git-observatory/desktop-shell
 ```
 
-Useful validation commands:
+In the app, choose **New Playground**, then use **Open System Terminal** to run Git commands inside the generated practice repository. The graph and state panels update as the repository changes.
+
+## Useful Commands
 
 ```bash
 npm test
+npm run build
 npm run test:e2e
 npm run agents:check
 ```
 
-The desktop app currently implements the architectural spine and an initial end-to-end observability flow. The shared packages are structured so a future web shell can reuse the same snapshot, transition, and visualization contracts.
+- `npm test`: runs Vitest unit tests across the workspace
+- `npm run build`: builds shared packages and the Electron desktop shell
+- `npm run test:e2e`: runs Playwright desktop workflow tests
+- `npm run agents:check`: validates agent workflow contracts and task artifacts
+
+## Development Notes
+
+The app currently runs as a local Electron playground rather than a packaged desktop release. Sandboxes are created under the operating system temp directory and cleaned up by the Electron shell when possible.
+
+The codebase is structured so future shells or workflows can reuse the same snapshot, transition, and visualization contracts without depending directly on Electron.
