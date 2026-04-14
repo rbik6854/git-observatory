@@ -430,6 +430,36 @@ function blobNodeId(oid: string): string {
   return `blob:${oid}`;
 }
 
+function buildStagingArea(snapshot: RepoStateSnapshot, delta: StateDelta | null): GraphViewModel["stagingArea"] {
+  const stagedPaths = new Set<string>();
+  const stagedEntries = snapshot.index.map((entry) => {
+    stagedPaths.add(`${entry.path}:${entry.stage}`);
+    return {
+      id: `staging:${entry.path}:${entry.stage}`,
+      path: entry.path,
+      oid: entry.oid,
+      mode: entry.mode,
+      stage: entry.stage,
+      indexStatus: snapshot.workingTree.find((file) => file.path === entry.path)?.indexStatus ?? "",
+      emphasis: delta?.indexChanged.includes(`${entry.path}:${entry.stage}`) ? "changed" as const : "default" as const
+    };
+  });
+
+  const stagedDeletes = snapshot.workingTree
+    .filter((file) => file.indexStatus === "D" && !stagedPaths.has(`${file.path}:0`))
+    .map((file) => ({
+      id: `staging:${file.path}:0`,
+      path: file.path,
+      oid: "",
+      mode: "",
+      stage: 0,
+      indexStatus: file.indexStatus,
+      emphasis: delta?.workingTreeChanged.includes(file.path) ? "changed" as const : "default" as const
+    }));
+
+  return [...stagedEntries, ...stagedDeletes];
+}
+
 const HISTORY_START_X = 430;
 const HISTORY_START_Y = 120;
 const HISTORY_LANE_WIDTH = 170;
@@ -1000,14 +1030,7 @@ export function projectGraphIncremental(params: {
         workTreeStatus: file.workTreeStatus,
         emphasis: delta?.workingTreeChanged.includes(file.path) ? "changed" : "default"
       })),
-      stagingArea: snapshot.index.map((entry) => ({
-        id: `staging:${entry.path}:${entry.stage}`,
-        path: entry.path,
-        oid: entry.oid,
-        mode: entry.mode,
-        stage: entry.stage,
-        emphasis: delta?.indexChanged.includes(`${entry.path}:${entry.stage}`) ? "changed" : "default"
-      })),
+      stagingArea: buildStagingArea(snapshot, delta),
       selection,
       visibilityFilters
     },
@@ -1119,14 +1142,7 @@ export function projectChangePipeline(params: {
       workTreeStatus: file.workTreeStatus,
       emphasis: delta?.workingTreeChanged.includes(file.path) ? "changed" : "default"
     })),
-    stagingArea: snapshot.index.map((entry) => ({
-      id: `staging:${entry.path}:${entry.stage}`,
-      path: entry.path,
-      oid: entry.oid,
-      mode: entry.mode,
-      stage: entry.stage,
-      emphasis: delta?.indexChanged.includes(`${entry.path}:${entry.stage}`) ? "changed" : "default"
-    })),
+    stagingArea: buildStagingArea(snapshot, delta),
     stagedBlobs: Array.from(stagedBlobMap.values()),
     summary
   };

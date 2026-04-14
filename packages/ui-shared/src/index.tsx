@@ -10,13 +10,62 @@ function truncate(value: string, length = 12): string {
   return value.length <= length ? value : `${value.slice(0, length)}...`;
 }
 
-function statusLabel(indexStatus: string, workTreeStatus: string): string {
+function statusName(status: string): string {
+  switch (status) {
+    case "A":
+      return "new file";
+    case "M":
+      return "modified";
+    case "D":
+      return "deleted";
+    case "R":
+      return "renamed";
+    case "C":
+      return "copied";
+    case "U":
+      return "unmerged";
+    case "?":
+      return "untracked";
+    case "!":
+      return "ignored";
+    default:
+      return status.trim() ? `status ${status}` : "clean";
+  }
+}
+
+function workingTreeStatusLabel(indexStatus: string, workTreeStatus: string): string {
   if (indexStatus === "?" && workTreeStatus === "?") {
     return "untracked";
   }
-  const left = indexStatus.trim() || "-";
-  const right = workTreeStatus.trim() || "-";
-  return `${left}/${right}`;
+
+  if (workTreeStatus === "U" || indexStatus === "U") {
+    return "conflicted";
+  }
+
+  return statusName(workTreeStatus);
+}
+
+function indexStatusLabel(stage: number, indexStatus: string): string {
+  if (stage !== 0) {
+    return `unmerged stage ${stage}`;
+  }
+
+  switch (indexStatus) {
+    case "A":
+      return "staged new file";
+    case "M":
+      return "staged modified";
+    case "D":
+      return "staged delete";
+    case "R":
+      return "staged rename";
+    case "C":
+      return "staged copy";
+    case "U":
+      return "unmerged conflict";
+    default:
+      return "staged";
+  }
 }
 
 export function InfoBadge(props: { label: string; summary: string; details?: ReactNode }) {
@@ -305,7 +354,7 @@ export function StatusPanel(props: {
                     type="button"
                   >
                     <span>{item.path}</span>
-                    <strong>{statusLabel(item.indexStatus, item.workTreeStatus)}</strong>
+                    <strong>{workingTreeStatusLabel(item.indexStatus, item.workTreeStatus)}</strong>
                   </button>
                 );
               })
@@ -319,7 +368,7 @@ export function StatusPanel(props: {
                     type="button"
                   >
                     <span>{item.path}</span>
-                    <code>{truncate(item.oid, 7)}</code>
+                    <strong>{indexStatusLabel(item.stage, item.indexStatus)}</strong>
                   </button>
                 );
               })}

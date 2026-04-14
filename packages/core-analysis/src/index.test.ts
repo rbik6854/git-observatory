@@ -312,6 +312,29 @@ describe("projectGraph", () => {
     expect(reusedBlob?.metadata.staged).toBe(true);
   });
 
+  it("surfaces staged deletes in the index panel even though the deleted path has no index entry", () => {
+    const snapshot: RepoStateSnapshot = {
+      ...createEmptySnapshot("C:/repo"),
+      workingTree: [{ path: "removed.txt", indexStatus: "D", workTreeStatus: " " }],
+      index: [],
+      refs: [{ name: "refs/heads/main", oid: "commit123", objectType: "commit", scope: "local" }],
+      head: { detached: false, target: "refs/heads/main", oid: "commit123" },
+      commitGraph: [
+        { oid: "commit123", treeOid: "tree123", parents: [], subject: "Initial commit", decorations: ["HEAD -> main"] }
+      ]
+    };
+
+    const graph = projectGraph({ snapshot });
+
+    expect(graph.stagingArea).toEqual([
+      expect.objectContaining({
+        path: "removed.txt",
+        indexStatus: "D",
+        oid: ""
+      })
+    ]);
+  });
+
   it("places side branch commits in a separate lane from the current branch first-parent path", () => {
     const snapshot: RepoStateSnapshot = {
       ...createEmptySnapshot("C:/repo"),

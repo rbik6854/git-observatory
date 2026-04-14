@@ -1,6 +1,6 @@
 import path from "node:path";
 import { execFileSync } from "node:child_process";
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, unlinkSync, writeFileSync } from "node:fs";
 import { test, expect, _electron as electron } from "@playwright/test";
 import electronBinary from "electron";
 
@@ -71,6 +71,7 @@ test("playground canvas expands committed tree contents after refresh", async ()
     await page.getByRole("button", { name: "Refresh" }).click();
 
     await expect(page.locator(".playground-state-panel").filter({ hasText: "Index" })).toContainText("test.txt");
+    await expect(page.locator(".playground-state-panel").filter({ hasText: "Index" })).toContainText("staged new file");
 
     execFileSync("git", ["commit", "-m", "first commit"], { cwd: repoPath });
 
@@ -82,6 +83,26 @@ test("playground canvas expands committed tree contents after refresh", async ()
     await expect(page.locator(".go-node--head")).toHaveCount(0);
     await expect(page.locator(".go-node--ref")).toHaveCount(0);
     await expect(page.locator(".go-node__ref-badge")).toContainText(["main *", "HEAD"]);
+
+    writeFileSync(path.join(repoPath, "test.txt"), "hello again\n");
+    writeFileSync(path.join(repoPath, "removed.txt"), "remove me\n");
+    execFileSync("git", ["add", "removed.txt"], { cwd: repoPath });
+    execFileSync("git", ["commit", "-m", "add removed file"], { cwd: repoPath });
+    unlinkSync(path.join(repoPath, "removed.txt"));
+    await page.getByRole("button", { name: "Refresh" }).click();
+
+    await expect(page.locator(".playground-state-panel").filter({ hasText: "Working Tree" })).toContainText("test.txt");
+    await expect(page.locator(".playground-state-panel").filter({ hasText: "Working Tree" })).toContainText("modified");
+    await expect(page.locator(".playground-state-panel").filter({ hasText: "Working Tree" })).toContainText("removed.txt");
+    await expect(page.locator(".playground-state-panel").filter({ hasText: "Working Tree" })).toContainText("deleted");
+
+    execFileSync("git", ["add", "test.txt", "removed.txt"], { cwd: repoPath });
+    await page.getByRole("button", { name: "Refresh" }).click();
+
+    await expect(page.locator(".playground-state-panel").filter({ hasText: "Index" })).toContainText("test.txt");
+    await expect(page.locator(".playground-state-panel").filter({ hasText: "Index" })).toContainText("staged modified");
+    await expect(page.locator(".playground-state-panel").filter({ hasText: "Index" })).toContainText("removed.txt");
+    await expect(page.locator(".playground-state-panel").filter({ hasText: "Index" })).toContainText("staged delete");
   } finally {
     await electronApp.close();
   }
