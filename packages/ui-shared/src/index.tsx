@@ -240,7 +240,14 @@ export function GraphCanvas(props: {
       <div className="go-graph-scroll">
         <div className="go-graph-stage" style={{ width, height }}>
           <svg className="go-graph-svg" height={height} width={width}>
-            {graph.edges.filter((edge) => renderedNodeIds.has(edge.source) && renderedNodeIds.has(edge.target)).map((edge) => {
+            {graph.edges.filter((edge) => {
+              const source = nodeMap.get(edge.source);
+              return (
+                renderedNodeIds.has(edge.source) &&
+                renderedNodeIds.has(edge.target) &&
+                !(edge.relationship === "contains" && source?.type === "tree" && source.metadata.treeContentsCollapsed === true)
+              );
+            }).map((edge) => {
               const source = nodeMap.get(edge.source);
               const target = nodeMap.get(edge.target);
               if (!source || !target) {
@@ -307,12 +314,15 @@ export function GraphCanvas(props: {
                   </span>
                 ) : null}
                 {!compactLabel ? <span className="go-node__type">{nodeCaption(node.type)}</span> : null}
-                {node.type === "blob" ? (
+                {node.type === "blob" || node.type === "tree" ? (
                   <span className="go-node__badges">
-                    {Boolean(node.metadata.staged) ? (
+                    {node.type === "tree" && node.metadata.treeContentsCollapsed === true ? (
+                      <span className="go-node__badge go-node__badge--collapsed">collapsed</span>
+                    ) : null}
+                    {node.type === "blob" && Boolean(node.metadata.staged) ? (
                       <span className="go-node__badge go-node__badge--staged">staged</span>
                     ) : null}
-                    {typeof node.metadata.pathCount === "number" && node.metadata.pathCount > 1 ? (
+                    {node.type === "blob" && typeof node.metadata.pathCount === "number" && node.metadata.pathCount > 1 ? (
                       <span className="go-node__badge go-node__badge--reused">{node.metadata.pathCount} paths</span>
                     ) : null}
                   </span>

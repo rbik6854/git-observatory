@@ -136,7 +136,8 @@ test("playground canvas collapses large committed tree contents", async () => {
 
     await page.getByRole("button", { name: "Refresh" }).click();
 
-    await expect(page.locator(".go-node--tree")).toContainText("5 entries");
+    await expect(page.locator(".go-node--tree")).toContainText("5 files");
+    await expect(page.locator(".go-node--tree")).toContainText("collapsed");
     await expect(page.locator(".go-node--blob")).toHaveCount(0);
     await expect(page.locator(".go-graph-edge--contains")).toHaveCount(1);
   } finally {

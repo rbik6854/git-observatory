@@ -470,6 +470,30 @@ const OBJECT_COLUMN_GAP = 300;
 const OBJECT_CHILD_COLUMN_GAP = 260;
 const INLINE_TREE_ENTRY_LIMIT = 4;
 
+function formatTreeEntrySummary(entries: Extract<GitObjectInspection, { type: "tree" }>["entries"]): {
+  label: string;
+  fileCount: number;
+  directoryCount: number;
+} {
+  const fileCount = entries.filter((entry) => entry.type === "blob").length;
+  const directoryCount = entries.filter((entry) => entry.type === "tree").length;
+  const parts: string[] = [];
+
+  if (fileCount > 0) {
+    parts.push(`${fileCount} ${fileCount === 1 ? "file" : "files"}`);
+  }
+
+  if (directoryCount > 0) {
+    parts.push(`${directoryCount} ${directoryCount === 1 ? "dir" : "dirs"}`);
+  }
+
+  return {
+    label: parts.length > 0 ? parts.join(" ") : "empty",
+    fileCount,
+    directoryCount
+  };
+}
+
 function assignCommitLanes(snapshot: RepoStateSnapshot): Map<string, number> {
   const commitsByOid = toMap(snapshot.commitGraph, (commit) => commit.oid);
   const lanes = new Map<string, number>();
@@ -580,13 +604,16 @@ function buildTreeLayout(
   }
 
   const parentNode = nodes.find((node) => node.id === parentNodeId);
+  const summary = formatTreeEntrySummary(tree.entries);
   if (parentNode) {
     parentNode.metadata.treeEntryCount = tree.entries.length;
+    parentNode.metadata.treeFileCount = summary.fileCount;
+    parentNode.metadata.treeDirectoryCount = summary.directoryCount;
   }
 
   if (tree.entries.length > INLINE_TREE_ENTRY_LIMIT) {
     if (parentNode) {
-      parentNode.label = `${tree.entries.length} entries`;
+      parentNode.label = summary.label;
       parentNode.metadata.treeContentsCollapsed = true;
     }
     return;

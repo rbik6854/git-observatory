@@ -614,8 +614,10 @@ describe("projectGraph", () => {
 
     expect(graph.nodes.filter((node) => node.type === "blob")).toHaveLength(0);
     expect(graph.edges.filter((edge) => edge.source === "tree:tree123" && edge.relationship === "contains")).toHaveLength(0);
-    expect(tree?.label).toBe("5 entries");
+    expect(tree?.label).toBe("5 files");
     expect(tree?.metadata.treeEntryCount).toBe(5);
+    expect(tree?.metadata.treeFileCount).toBe(5);
+    expect(tree?.metadata.treeDirectoryCount).toBe(0);
     expect(tree?.metadata.treeContentsCollapsed).toBe(true);
   });
 

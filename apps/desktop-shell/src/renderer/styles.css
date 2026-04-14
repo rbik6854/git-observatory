@@ -548,6 +548,10 @@ button:disabled {
   color: #d9ddd6;
 }
 
+.go-node__badge--collapsed {
+  color: #c9f7d2;
+}
+
 @media (max-width: 980px) {
   .playground-topbar {
     grid-template-columns: 1fr;
