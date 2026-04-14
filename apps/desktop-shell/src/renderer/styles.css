@@ -318,22 +318,24 @@ button:disabled {
 
 .go-graph-edge {
   stroke: rgba(255, 255, 255, 0.74);
-  stroke-width: 3;
+  stroke-width: 2.5;
   stroke-linecap: round;
 }
 
 .go-graph-edge--parent {
   stroke: var(--red);
-  stroke-dasharray: 8 6;
+  stroke-width: 4;
 }
 
 .go-graph-edge--contains {
   stroke: var(--accent);
-  stroke-width: 2.5;
+  stroke-width: 1.6;
+  opacity: 0.62;
 }
 
 .go-graph-edge--symbolic {
   stroke: var(--yellow);
+  stroke-width: 2;
 }
 
 .go-graph-edge.is-new,
@@ -359,9 +361,9 @@ button:disabled {
   place-items: center;
   align-content: center;
   gap: 0.12rem;
-  padding: 0.5rem;
+  padding: 0.35rem;
   border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 50%;
+  border-radius: 8px;
   color: white;
   font-weight: 700;
   text-align: center;
@@ -377,13 +379,25 @@ button:disabled {
 
 .go-node strong,
 .go-node code {
-  max-width: 86%;
+  max-width: 94%;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .go-node strong {
   line-height: 1.05;
+}
+
+.go-node--compact {
+  align-content: center;
+  padding: 0.25rem 0.55rem;
+}
+
+.go-node--compact strong {
+  max-width: 100%;
+  font-size: 0.72rem;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .go-node code {
@@ -401,14 +415,17 @@ button:disabled {
 
 .go-node--commit {
   background: #b83d36;
+  box-shadow: 0 0 0 2px rgba(184, 61, 54, 0.14);
 }
 
 .go-node--tree {
   background: #347a46;
+  opacity: 0.9;
 }
 
 .go-node--blob {
   background: #4168c7;
+  opacity: 0.9;
 }
 
 .go-node__type {
@@ -416,6 +433,38 @@ button:disabled {
   font-size: 0.66rem;
   text-transform: uppercase;
   letter-spacing: 0;
+}
+
+.go-node__ref-badges {
+  position: absolute;
+  top: -2rem;
+  left: 0;
+  display: flex;
+  gap: 0.35rem;
+  pointer-events: none;
+}
+
+.go-node__ref-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.4rem;
+  max-width: 6.5rem;
+  padding: 0.16rem 0.55rem;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 6px;
+  background: #7350b8;
+  color: #f5f5f2;
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.go-node__ref-badge--head {
+  background: #b98617;
+  color: #14110a;
 }
 
 .go-node__badges {

@@ -58,20 +58,20 @@ export function EmptyState(props: { message: string; action?: ReactNode }) {
   );
 }
 
-function nodeSize(type: GraphViewModel["nodes"][number]["type"]) {
+function nodeDimensions(type: GraphViewModel["nodes"][number]["type"]) {
   switch (type) {
     case "head":
-      return 72;
+      return { width: 70, height: 34 };
     case "ref":
-      return 84;
+      return { width: 96, height: 34 };
     case "commit":
-      return 110;
+      return { width: 118, height: 78 };
     case "tree":
-      return 84;
+      return { width: 86, height: 64 };
     case "blob":
-      return 88;
+      return { width: 90, height: 64 };
     default:
-      return 88;
+      return { width: 90, height: 64 };
   }
 }
 
@@ -116,7 +116,7 @@ function edgeLabel(relationship: GraphViewModel["edges"][number]["relationship"]
 }
 
 function shouldRenderEdgeLabel(relationship: GraphViewModel["edges"][number]["relationship"]): boolean {
-  return relationship !== "contains";
+  return false;
 }
 
 export function GraphCanvas(props: {
@@ -136,10 +136,37 @@ export function GraphCanvas(props: {
     );
   }
 
-  const width = Math.max(...graph.nodes.map((node) => node.position.x + nodeSize(node.type) + 120), 880);
-  const height = Math.max(...graph.nodes.map((node) => node.position.y + nodeSize(node.type) + 120), 560);
+  const width = Math.max(...graph.nodes.map((node) => node.position.x + nodeDimensions(node.type).width + 120), 880);
+  const height = Math.max(...graph.nodes.map((node) => node.position.y + nodeDimensions(node.type).height + 120), 560);
   const nodeMap = new Map(graph.nodes.map((node) => [node.id, node]));
   const visibleTypes = new Set(graph.nodes.map((node) => node.type));
+  const renderedNodes = graph.nodes.filter((node) => node.type !== "head" && node.type !== "ref");
+  const renderedNodeIds = new Set(renderedNodes.map((node) => node.id));
+  const commitBadges = new Map<string, string[]>();
+
+  function addCommitBadge(commitId: string | null | undefined, label: string): void {
+    if (!commitId || !renderedNodeIds.has(commitId)) {
+      return;
+    }
+
+    const labels = commitBadges.get(commitId) ?? [];
+    if (!labels.includes(label)) {
+      labels.push(label);
+    }
+    commitBadges.set(commitId, labels);
+  }
+
+  const headNode = graph.nodes.find((node) => node.type === "head");
+  graph.nodes.forEach((node) => {
+    if (node.type === "ref" && node.oid) {
+      const activeSuffix = node.target && headNode?.target === node.target ? " *" : "";
+      addCommitBadge(`commit:${node.oid}`, `${node.label}${activeSuffix}`);
+    }
+  });
+
+  if (headNode?.oid) {
+    addCommitBadge(`commit:${headNode.oid}`, "HEAD");
+  }
 
   return (
     <Panel
@@ -164,19 +191,19 @@ export function GraphCanvas(props: {
       <div className="go-graph-scroll">
         <div className="go-graph-stage" style={{ width, height }}>
           <svg className="go-graph-svg" height={height} width={width}>
-            {graph.edges.map((edge) => {
+            {graph.edges.filter((edge) => renderedNodeIds.has(edge.source) && renderedNodeIds.has(edge.target)).map((edge) => {
               const source = nodeMap.get(edge.source);
               const target = nodeMap.get(edge.target);
               if (!source || !target) {
                 return null;
               }
 
-              const sourceRadius = nodeSize(source.type) / 2;
-              const targetRadius = nodeSize(target.type) / 2;
-              const x1 = source.position.x + sourceRadius;
-              const y1 = source.position.y + sourceRadius;
-              const x2 = target.position.x + targetRadius;
-              const y2 = target.position.y + targetRadius;
+              const sourceDimensions = nodeDimensions(source.type);
+              const targetDimensions = nodeDimensions(target.type);
+              const x1 = source.position.x + sourceDimensions.width / 2;
+              const y1 = source.position.y + sourceDimensions.height / 2;
+              const x2 = target.position.x + targetDimensions.width / 2;
+              const y2 = target.position.y + targetDimensions.height / 2;
 
               return (
                 <g key={edge.id}>
@@ -201,25 +228,36 @@ export function GraphCanvas(props: {
             })}
           </svg>
 
-          {graph.nodes.map((node) => {
-            const size = nodeSize(node.type);
+          {renderedNodes.map((node) => {
+            const dimensions = nodeDimensions(node.type);
             const selection: GraphSelection = { kind: "node", id: node.id };
             const selected = selectionMatches(graph.selection, selection);
+            const compactLabel = node.type === "head" || node.type === "ref";
+            const refBadges = commitBadges.get(node.id) ?? [];
 
             return (
               <button
-                className={`go-node go-node--${node.type} ${selected ? "is-selected" : ""} ${node.emphasis && node.emphasis !== "default" ? `is-${node.emphasis}` : ""}`}
+                className={`go-node go-node--${node.type} ${compactLabel ? "go-node--compact" : ""} ${selected ? "is-selected" : ""} ${node.emphasis && node.emphasis !== "default" ? `is-${node.emphasis}` : ""}`}
                 key={node.id}
                 onClick={() => props.onSelectNode(selection)}
                 style={{
-                  width: size,
-                  height: size,
+                  width: dimensions.width,
+                  height: dimensions.height,
                   left: node.position.x,
                   top: node.position.y
                 }}
                 type="button"
               >
-                <span className="go-node__type">{nodeCaption(node.type)}</span>
+                {refBadges.length > 0 ? (
+                  <span className="go-node__ref-badges">
+                    {refBadges.map((label) => (
+                      <span className={`go-node__ref-badge ${label === "HEAD" ? "go-node__ref-badge--head" : ""}`} key={label}>
+                        {label}
+                      </span>
+                    ))}
+                  </span>
+                ) : null}
+                {!compactLabel ? <span className="go-node__type">{nodeCaption(node.type)}</span> : null}
                 {node.type === "blob" ? (
                   <span className="go-node__badges">
                     {Boolean(node.metadata.staged) ? (
@@ -231,7 +269,7 @@ export function GraphCanvas(props: {
                   </span>
                 ) : null}
                 <strong>{node.label}</strong>
-                {node.oid ? <code>{truncate(node.oid, 7)}</code> : node.target ? <code>{node.target}</code> : null}
+                {!compactLabel && node.oid ? <code>{truncate(node.oid, 7)}</code> : !compactLabel && node.target ? <code>{node.target}</code> : null}
               </button>
             );
           })}

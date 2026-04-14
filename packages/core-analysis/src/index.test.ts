@@ -340,6 +340,176 @@ describe("projectGraph", () => {
     expect(feature4?.position.x).not.toBe(main3?.position.x);
   });
 
+  it("keeps branch labels attached to their commit lanes when tree objects are expanded", () => {
+    const snapshot: RepoStateSnapshot = {
+      ...createEmptySnapshot("C:/repo"),
+      refs: [
+        { name: "refs/heads/main", oid: "main3", objectType: "commit", scope: "local" },
+        { name: "refs/heads/feature", oid: "feature3", objectType: "commit", scope: "local" }
+      ],
+      head: { detached: false, target: "refs/heads/main", oid: "main3" },
+      index: [{ mode: "100644", oid: "blob-main3", stage: 0, path: "app.txt" }],
+      commitGraph: [
+        { oid: "main3", treeOid: "tree-main3", parents: ["main2"], subject: "Main adds line 3", decorations: ["HEAD -> main"] },
+        { oid: "feature3", treeOid: "tree-feature3", parents: ["feature4"], subject: "Feature adds line 3", decorations: ["feature"] },
+        { oid: "feature4", treeOid: "tree-feature4", parents: ["main2"], subject: "Feature adds line 4", decorations: [] },
+        { oid: "main2", treeOid: "tree-main2", parents: ["initial"], subject: "Main adds line 2", decorations: [] },
+        { oid: "initial", treeOid: "tree-initial", parents: [], subject: "Initial commit", decorations: [] }
+      ]
+    };
+
+    const graph = projectGraph({
+      snapshot,
+      visibilityFilters: createDefaultGraphVisibilityFilters(),
+      expansionState: {
+        ...createDefaultGraphExpansionState(),
+        expandedTreeOids: ["tree-main3", "tree-feature3", "tree-feature4", "tree-main2", "tree-initial"]
+      },
+      treeInspections: {
+        "tree-main3": {
+          type: "tree",
+          oid: "tree-main3",
+          size: 24,
+          storage: "loose",
+          entries: [{ mode: "100644", type: "blob", oid: "blob-main3", path: "app.txt" }],
+          summary: { renderedEntries: 1, totalEntries: 1, truncated: false }
+        },
+        "tree-feature3": {
+          type: "tree",
+          oid: "tree-feature3",
+          size: 24,
+          storage: "loose",
+          entries: [{ mode: "100644", type: "blob", oid: "blob-feature3", path: "app.txt" }],
+          summary: { renderedEntries: 1, totalEntries: 1, truncated: false }
+        },
+        "tree-feature4": {
+          type: "tree",
+          oid: "tree-feature4",
+          size: 24,
+          storage: "loose",
+          entries: [{ mode: "100644", type: "blob", oid: "blob-feature4", path: "app.txt" }],
+          summary: { renderedEntries: 1, totalEntries: 1, truncated: false }
+        },
+        "tree-main2": {
+          type: "tree",
+          oid: "tree-main2",
+          size: 24,
+          storage: "loose",
+          entries: [{ mode: "100644", type: "blob", oid: "blob-main2", path: "app.txt" }],
+          summary: { renderedEntries: 1, totalEntries: 1, truncated: false }
+        },
+        "tree-initial": {
+          type: "tree",
+          oid: "tree-initial",
+          size: 24,
+          storage: "loose",
+          entries: [{ mode: "100644", type: "blob", oid: "blob-initial", path: "app.txt" }],
+          summary: { renderedEntries: 1, totalEntries: 1, truncated: false }
+        }
+      }
+    });
+
+    const main3 = graph.nodes.find((node) => node.id === "commit:main3");
+    const main2 = graph.nodes.find((node) => node.id === "commit:main2");
+    const feature3 = graph.nodes.find((node) => node.id === "commit:feature3");
+    const feature4 = graph.nodes.find((node) => node.id === "commit:feature4");
+    const featureRef = graph.nodes.find((node) => node.id === "ref:refs/heads/feature");
+    const trees = graph.nodes.filter((node) => node.type === "tree");
+    const maxCommitX = Math.max(...graph.nodes.filter((node) => node.type === "commit").map((node) => node.position.x));
+    const minTreeX = Math.min(...trees.map((node) => node.position.x));
+
+    expect(main3?.position.x).toBe(main2?.position.x);
+    expect(feature3?.position.x).toBe(feature4?.position.x);
+    expect(feature3?.position.x).toBeGreaterThan(main3?.position.x ?? 0);
+    expect(featureRef?.position.x).toBeLessThan((feature3?.position.x ?? 0) - 80);
+    expect(minTreeX).toBeGreaterThan(maxCommitX + 160);
+  });
+
+  it("shows a rebased linear history without ref labels or object details cluttering the lane", () => {
+    const snapshot: RepoStateSnapshot = {
+      ...createEmptySnapshot("C:/repo"),
+      refs: [
+        { name: "refs/heads/feature", oid: "feature4", objectType: "commit", scope: "local" },
+        { name: "refs/heads/main", oid: "main3", objectType: "commit", scope: "local" }
+      ],
+      head: { detached: false, target: "refs/heads/feature", oid: "feature4" },
+      commitGraph: [
+        { oid: "feature4", treeOid: "tree-feature4", parents: ["feature3"], subject: "Feature adds line 4", decorations: ["HEAD -> feature"] },
+        { oid: "feature3", treeOid: "tree-feature3", parents: ["main3"], subject: "Feature adds line 3", decorations: [] },
+        { oid: "main3", treeOid: "tree-main3", parents: ["main2"], subject: "Main adds line 3", decorations: ["main"] },
+        { oid: "main2", treeOid: "tree-main2", parents: ["initial"], subject: "Main adds line 2", decorations: [] },
+        { oid: "initial", treeOid: "tree-initial", parents: [], subject: "Initial commit", decorations: [] }
+      ]
+    };
+
+    const graph = projectGraph({
+      snapshot,
+      visibilityFilters: createDefaultGraphVisibilityFilters(),
+      expansionState: {
+        ...createDefaultGraphExpansionState(),
+        expandedTreeOids: ["tree-feature4", "tree-feature3", "tree-main3", "tree-main2", "tree-initial"]
+      },
+      treeInspections: {
+        "tree-feature4": {
+          type: "tree",
+          oid: "tree-feature4",
+          size: 24,
+          storage: "loose",
+          entries: [{ mode: "100644", type: "blob", oid: "blob-feature4", path: "app.txt" }],
+          summary: { renderedEntries: 1, totalEntries: 1, truncated: false }
+        },
+        "tree-feature3": {
+          type: "tree",
+          oid: "tree-feature3",
+          size: 24,
+          storage: "loose",
+          entries: [{ mode: "100644", type: "blob", oid: "blob-feature3", path: "app.txt" }],
+          summary: { renderedEntries: 1, totalEntries: 1, truncated: false }
+        },
+        "tree-main3": {
+          type: "tree",
+          oid: "tree-main3",
+          size: 24,
+          storage: "loose",
+          entries: [{ mode: "100644", type: "blob", oid: "blob-main3", path: "app.txt" }],
+          summary: { renderedEntries: 1, totalEntries: 1, truncated: false }
+        },
+        "tree-main2": {
+          type: "tree",
+          oid: "tree-main2",
+          size: 24,
+          storage: "loose",
+          entries: [{ mode: "100644", type: "blob", oid: "blob-main2", path: "app.txt" }],
+          summary: { renderedEntries: 1, totalEntries: 1, truncated: false }
+        },
+        "tree-initial": {
+          type: "tree",
+          oid: "tree-initial",
+          size: 24,
+          storage: "loose",
+          entries: [{ mode: "100644", type: "blob", oid: "blob-initial", path: "app.txt" }],
+          summary: { renderedEntries: 1, totalEntries: 1, truncated: false }
+        }
+      }
+    });
+
+    const commits = ["feature4", "feature3", "main3", "main2", "initial"].map((oid) =>
+      graph.nodes.find((node) => node.id === `commit:${oid}`)
+    );
+    const featureRef = graph.nodes.find((node) => node.id === "ref:refs/heads/feature");
+    const mainRef = graph.nodes.find((node) => node.id === "ref:refs/heads/main");
+    const trees = graph.nodes.filter((node) => node.type === "tree");
+    const blobs = graph.nodes.filter((node) => node.type === "blob");
+
+    expect(new Set(commits.map((node) => node?.position.x)).size).toBe(1);
+    expect(featureRef?.position.x).toBeLessThan((commits[0]?.position.x ?? 0) - 80);
+    expect(mainRef?.position.x).toBeLessThan((commits[2]?.position.x ?? 0) - 80);
+    expect(Math.abs((featureRef?.position.y ?? 0) - (commits[0]?.position.y ?? 0))).toBeLessThan(28);
+    expect(Math.abs((mainRef?.position.y ?? 0) - (commits[2]?.position.y ?? 0))).toBeLessThan(28);
+    expect(trees).toHaveLength(1);
+    expect(blobs).toHaveLength(1);
+  });
+
   it("fans out blob nodes that would otherwise overlap", () => {
     const snapshot: RepoStateSnapshot = {
       ...createEmptySnapshot("C:/repo"),

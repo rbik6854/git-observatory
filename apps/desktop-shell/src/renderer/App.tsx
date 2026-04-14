@@ -114,16 +114,12 @@ export default function App() {
   async function createPlayground() {
     setBusy(true);
     setError(null);
-      setSelection(null);
-      setTreeInspections({});
-      setExpandedTreeOids([]);
-      cacheRef.current = null;
+    setSelection(null);
+    setTreeInspections({});
+    setExpandedTreeOids([]);
+    cacheRef.current = null;
 
     try {
-      if (repoPath) {
-        await window.gitObservatory.removeSandbox(repoPath);
-      }
-
       const result = await window.gitObservatory.createSandbox("practice", "playground");
       setRepoPath(result.repoPath);
       setSandbox(result.sandbox);
@@ -257,7 +253,7 @@ export default function App() {
             Refresh
           </button>
           <button disabled={busy} onClick={() => void createPlayground()} type="button">
-            Reset Playground
+            New Playground
           </button>
         </div>
       </header>
