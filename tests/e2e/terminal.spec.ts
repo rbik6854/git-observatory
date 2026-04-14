@@ -65,6 +65,9 @@ test("playground canvas expands committed tree contents after refresh", async ()
     await expect(page.locator(".go-node--blob")).toContainText("test.txt");
     await expect(page.locator(".go-graph-edge--contains")).toHaveCount(2);
     await expect(page.locator(".go-node__badge--staged")).toHaveCount(0);
+    await expect(page.locator(".go-node--head")).toHaveCount(0);
+    await expect(page.locator(".go-node--ref")).toHaveCount(0);
+    await expect(page.locator(".go-node__ref-badge")).toContainText(["main", "HEAD"]);
   } finally {
     await electronApp.close();
   }

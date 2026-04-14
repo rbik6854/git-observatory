@@ -435,6 +435,38 @@ button:disabled {
   letter-spacing: 0;
 }
 
+.go-node__ref-badges {
+  position: absolute;
+  top: -2rem;
+  left: 0;
+  display: flex;
+  gap: 0.35rem;
+  pointer-events: none;
+}
+
+.go-node__ref-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.4rem;
+  max-width: 6.5rem;
+  padding: 0.16rem 0.55rem;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 6px;
+  background: #7350b8;
+  color: #f5f5f2;
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.go-node__ref-badge--head {
+  background: #b98617;
+  color: #14110a;
+}
+
 .go-node__badges {
   position: absolute;
   top: -0.35rem;
