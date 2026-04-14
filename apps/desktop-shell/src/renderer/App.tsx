@@ -17,10 +17,6 @@ const graphVisibility: GraphVisibilityFilters = {
   showTags: true
 };
 
-const graphExpansion: GraphExpansionState = {
-  expandedTreeOids: []
-};
-
 function formatTime(value: string | null): string {
   return value ?? "Not refreshed yet";
 }
@@ -35,11 +31,16 @@ export default function App() {
   const [snapshot, setSnapshot] = useState<RepoStateSnapshot | null>(null);
   const [selection, setSelection] = useState<GraphSelection | null>(null);
   const [treeInspections, setTreeInspections] = useState<Record<string, GitObjectInspection | undefined>>({});
+  const [expandedTreeOids, setExpandedTreeOids] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const cacheRef = useRef<GraphProjectionCache | null>(null);
   const refreshTimerRef = useRef<number | null>(null);
+
+  const graphExpansion = useMemo<GraphExpansionState>(() => ({
+    expandedTreeOids
+  }), [expandedTreeOids]);
 
   const graph = useMemo(() => {
     if (!snapshot) {
@@ -113,9 +114,10 @@ export default function App() {
   async function createPlayground() {
     setBusy(true);
     setError(null);
-    setSelection(null);
-    setTreeInspections({});
-    cacheRef.current = null;
+      setSelection(null);
+      setTreeInspections({});
+      setExpandedTreeOids([]);
+      cacheRef.current = null;
 
     try {
       if (repoPath) {
@@ -172,6 +174,55 @@ export default function App() {
 
     setSelection(nextSelection);
   }
+
+  useEffect(() => {
+    if (!snapshot) {
+      return;
+    }
+
+    const rootTreeOids = Array.from(new Set(snapshot.commitGraph.map((commit) => commit.treeOid).filter(Boolean)));
+    const missingTreeOids = rootTreeOids.filter((oid) => !treeInspections[oid]);
+
+    if (rootTreeOids.some((oid) => !expandedTreeOids.includes(oid))) {
+      setExpandedTreeOids((current) => Array.from(new Set([...current, ...rootTreeOids])));
+    }
+
+    if (missingTreeOids.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+
+    void Promise.all(
+      missingTreeOids.map(async (oid) => {
+        const inspection = await window.gitObservatory.inspectObjectWithOptions(snapshot.repoPath, oid, { entryLimit: 120 });
+        return [oid, inspection] as const;
+      })
+    )
+      .then((entries) => {
+        if (cancelled) {
+          return;
+        }
+
+        setTreeInspections((current) => {
+          const next = { ...current };
+          entries.forEach(([oid, inspection]) => {
+            next[oid] = inspection ?? undefined;
+          });
+          return next;
+        });
+        setError(null);
+      })
+      .catch((cause) => {
+        if (!cancelled) {
+          setError(cause instanceof Error ? cause.message : "Failed to inspect committed tree.");
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [expandedTreeOids, snapshot, treeInspections]);
 
   if (!repoPath || !snapshot) {
     return (
